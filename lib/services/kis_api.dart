@@ -51,7 +51,7 @@ class KisApi {
     return _accessToken!;
   }
 
-  Future<StockQuote> fetchSamsungQuote() async {
+  Future<StockQuote> fetchStockQuote(String stockCode) async {
     final token = await _fetchAccessToken();
 
     final uri =
@@ -60,7 +60,7 @@ class KisApi {
         ).replace(
           queryParameters: {
             'FID_COND_MRKT_DIV_CODE': 'J',
-            'FID_INPUT_ISCD': KisConfig.samsungCode,
+            'FID_INPUT_ISCD': stockCode,
           },
         );
 

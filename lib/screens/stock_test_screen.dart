@@ -10,10 +10,14 @@ class StockTestScreen extends StatefulWidget {
 
 class _StockTestScreenState extends State<StockTestScreen> {
   final KisApi _kisApi = KisApi();
+  final TextEditingController _stockController = TextEditingController(
+    text: '005930',
+  );
 
   bool _isLoading = false;
   String? _error;
   StockQuote? _quote;
+  String _currentStockCode = '';
 
   Future<void> _fetchQuote() async {
     setState(() {
@@ -22,8 +26,8 @@ class _StockTestScreenState extends State<StockTestScreen> {
     });
 
     try {
-      final quote = await _kisApi.fetchSamsungQuote();
-
+      final quote = await _kisApi.fetchStockQuote(_stockController.text.trim());
+      _currentStockCode = _stockController.text.trim();
       setState(() {
         _quote = quote;
         _isLoading = false;
@@ -44,9 +48,18 @@ class _StockTestScreenState extends State<StockTestScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            TextField(
+              controller: _stockController,
+              decoration: const InputDecoration(
+                labelText: '종목코드',
+                hintText: '예: 005930',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _isLoading ? null : _fetchQuote,
-              child: Text(_isLoading ? '조회 중...' : '삼성전자 조회'),
+              child: Text(_isLoading ? '조회 중...' : '조회'),
             ),
 
             const SizedBox(height: 24),
@@ -55,6 +68,15 @@ class _StockTestScreenState extends State<StockTestScreen> {
               Text(_error!, style: const TextStyle(color: Colors.red)),
 
             if (_quote != null) ...[
+              Text(
+                '조회 종목 : $_currentStockCode',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+
+              const SizedBox(height: 12),
               Text('현재가 : ${_quote!.currentPrice}'),
               const SizedBox(height: 8),
 
