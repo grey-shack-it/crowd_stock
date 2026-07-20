@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'screens/stock_test_screen.dart';
+import 'screens/crowd_engine_test_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,7 +17,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const StockTestScreen(),
+      home: const CrowdEngineTestScreen(),
     );
   }
 }

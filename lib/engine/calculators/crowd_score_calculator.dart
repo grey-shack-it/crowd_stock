@@ -1,6 +1,7 @@
 abstract class CrowdScoreCalculator {
   double calculate({
     required double baseParticipationScore,
-    required double confidenceMultiplier,
+    required double brokerSpreadScore,
+    required double investorSpreadScore,
   });
 }

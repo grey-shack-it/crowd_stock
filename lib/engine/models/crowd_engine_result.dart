@@ -2,12 +2,11 @@ class CrowdEngineResult {
   final double scaleScore;
   final double accelerationScore;
   final double baseParticipationScore;
-
   final double brokerSpreadScore;
   final double investorSpreadScore;
-
-  final double confidenceMultiplier;
   final double crowdScore;
+  final double programScore;
+  final ProgramInterpretation programInterpretation;
 
   const CrowdEngineResult({
     required this.scaleScore,
@@ -15,9 +14,10 @@ class CrowdEngineResult {
     required this.baseParticipationScore,
     required this.brokerSpreadScore,
     required this.investorSpreadScore,
-    required this.confidenceMultiplier,
     required this.crowdScore,
+    required this.programScore,
+    required this.programInterpretation,
   });
 }
 
-enum ConfidenceLevel { veryLow, low, normal, high, veryHigh }
+enum ProgramInterpretation { arbitrageDominant, neutral, nonArbitrageDominant }
