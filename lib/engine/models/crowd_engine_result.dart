@@ -2,10 +2,17 @@ class CrowdEngineResult {
   final double scaleScore;
   final double accelerationScore;
   final double baseParticipationScore;
+
   final double brokerSpreadScore;
   final double investorSpreadScore;
+  final double nonArbitrageScore;
+  final double arbitrageScore;
+
+  final double participationSpreadScore;
+  final double confidenceMultiplier;
+
   final double crowdScore;
-  final double programScore;
+
   final ProgramInterpretation programInterpretation;
 
   const CrowdEngineResult({
@@ -14,8 +21,11 @@ class CrowdEngineResult {
     required this.baseParticipationScore,
     required this.brokerSpreadScore,
     required this.investorSpreadScore,
+    required this.nonArbitrageScore,
+    required this.arbitrageScore,
+    required this.participationSpreadScore,
+    required this.confidenceMultiplier,
     required this.crowdScore,
-    required this.programScore,
     required this.programInterpretation,
   });
 }

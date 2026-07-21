@@ -6,11 +6,8 @@ class DefaultCrowdScoreCalculator implements CrowdScoreCalculator {
   @override
   double calculate({
     required double baseParticipationScore,
-    required double brokerSpreadScore,
-    required double investorSpreadScore,
+    required double confidenceMultiplier,
   }) {
-    final spreadScore = (brokerSpreadScore + investorSpreadScore) / 2.0;
-
-    return (baseParticipationScore + spreadScore) / 2.0;
+    return baseParticipationScore * confidenceMultiplier;
   }
 }
