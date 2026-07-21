@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/kis_config.dart';
+import 'investor_flow.dart';
 
 class StockQuote {
   const StockQuote({
@@ -52,6 +53,10 @@ class KisApi {
   }
 
   Future<StockQuote> fetchStockQuote(String stockCode) async {
+    Future<InvestorFlow> fetchInvestorFlow(String stockCode) async {
+      throw UnimplementedError();
+    }
+
     final token = await _fetchAccessToken();
 
     final uri =
