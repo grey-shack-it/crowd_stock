@@ -3,6 +3,18 @@ import 'package:http/http.dart' as http;
 import '../config/kis_config.dart';
 import 'investor_flow.dart';
 
+class DailyPricePoint {
+  const DailyPricePoint({
+    required this.date,
+    required this.closePrice,
+    required this.tradingValue,
+  });
+
+  final String date; // yyyyMMdd
+  final double closePrice;
+  final double tradingValue;
+}
+
 class StockQuote {
   const StockQuote({
     required this.currentPrice,
@@ -103,5 +115,65 @@ class KisApi {
       marketCap: output['hts_avls']?.toString() ?? '-',
       sharesOutstanding: output['lstn_stcn']?.toString() ?? '-',
     );
+  }
+
+  /// 국내주식기간별시세(일/주/월/년), 종목당 한 번의 호출로 최대 100영업일치를 준다.
+  /// startDate/endDate는 yyyyMMdd 형식.
+  Future<List<DailyPricePoint>> fetchDailyPriceHistory({
+    required String stockCode,
+    required String startDate,
+    required String endDate,
+  }) async {
+    final token = await _fetchAccessToken();
+
+    final uri =
+        Uri.parse(
+          '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+        ).replace(
+          queryParameters: {
+            'FID_COND_MRKT_DIV_CODE': 'J',
+            'FID_INPUT_ISCD': stockCode,
+            'FID_INPUT_DATE_1': startDate,
+            'FID_INPUT_DATE_2': endDate,
+            'FID_PERIOD_DIV_CODE': 'D',
+            'FID_ORG_ADJ_PRC': '1',
+          },
+        );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'authorization': 'Bearer $token',
+        'appkey': KisConfig.appKey,
+        'appsecret': KisConfig.appSecret,
+        'tr_id': 'FHKST03010100',
+        'custtype': 'P',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('기간별시세 조회 실패: ${response.body}');
+    }
+
+    final data = jsonDecode(response.body);
+    final List<dynamic> output2 = data['output2'] ?? [];
+
+    return output2
+        .map((row) {
+          final closePrice =
+              double.tryParse(row['stck_clpr']?.toString() ?? '') ?? 0;
+          final tradingValue =
+              double.tryParse(row['acml_tr_pbmn']?.toString() ?? '') ?? 0;
+          final date = row['stck_bsop_date']?.toString() ?? '';
+
+          return DailyPricePoint(
+            date: date,
+            closePrice: closePrice,
+            tradingValue: tradingValue,
+          );
+        })
+        // 휴장일 등 빈 행(날짜 없음)은 제외
+        .where((point) => point.date.isNotEmpty && point.closePrice > 0)
+        .toList();
   }
 }

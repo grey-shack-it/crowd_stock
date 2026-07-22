@@ -1,21 +1,33 @@
 import 'package:flutter/material.dart';
 import '../services/kis_api.dart';
+import '../services/scale_history_builder.dart';
+import '../services/acceleration_history_builder.dart';
 import '../engine/metrics/scale_metrics.dart';
+import '../engine/metrics/acceleration_metrics.dart';
 import '../engine/calculators/scale_calculator.dart';
+import '../engine/calculators/acceleration_calculator.dart';
 import '../engine/statistics/percentile_calculator.dart';
 
 class StockTestScreen extends StatefulWidget {
-  const StockTestScreen({super.key});
+  const StockTestScreen({super.key, required this.kisApi});
+
+  final KisApi kisApi;
 
   @override
   State<StockTestScreen> createState() => _StockTestScreenState();
 }
 
 class _StockTestScreenState extends State<StockTestScreen> {
-  final KisApi _kisApi = KisApi();
+  KisApi get _kisApi => widget.kisApi;
   final ScaleCalculator _scaleCalculator = const ScaleCalculator(
     percentileCalculator: PercentileCalculator(),
   );
+  final ScaleHistoryBuilder _scaleHistoryBuilder = const ScaleHistoryBuilder();
+  final AccelerationCalculator _accelerationCalculator = const AccelerationCalculator(
+    percentileCalculator: PercentileCalculator(),
+  );
+  final AccelerationHistoryBuilder _accelerationHistoryBuilder =
+      const AccelerationHistoryBuilder();
   final TextEditingController _stockController = TextEditingController(
     text: '005930',
   );
@@ -25,7 +37,17 @@ class _StockTestScreenState extends State<StockTestScreen> {
   StockQuote? _quote;
   String _currentStockCode = '';
   double? _scaleScore;
+  double? _accelerationScore;
+  double? _baseParticipationScore;
   double? _marketCap;
+  int? _historyDayCount;
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y$m$d';
+  }
 
   Future<void> _fetchQuote() async {
     setState(() {
@@ -43,18 +65,59 @@ class _StockTestScreenState extends State<StockTestScreen> {
       final sharesOutstanding = double.tryParse(quote.sharesOutstanding) ?? 0;
       final marketCap = sharesOutstanding * currentPrice;
 
-      // TODO: 백엔드(Supabase)가 준비되면 실제 과거 기록으로 교체
-      const historicalScaleValues = [0.0012, 0.0015, 0.0017, 0.0020, 0.0023];
+      // 최근 60일치(넉넉하게) 기간별시세로 Scale 과거값 backfill
+      final now = DateTime.now();
+      final start = now.subtract(const Duration(days: 90)); // 휴장일 감안해 넉넉히
+      final priceHistory = await _kisApi.fetchDailyPriceHistory(
+        stockCode: _currentStockCode,
+        startDate: _formatDate(start),
+        endDate: _formatDate(now),
+      );
+
+      final historicalScaleValues = _scaleHistoryBuilder.build(
+        priceHistory: priceHistory,
+        sharesOutstanding: sharesOutstanding,
+      );
 
       final scaleScore = _scaleCalculator.calculate(
         metrics: ScaleMetrics(tradingValue: tradingValue, marketCap: marketCap),
         historicalScaleValues: historicalScaleValues,
       );
 
+      // 오늘의 실시간 참여도 (Scale과 같은 값: 거래대금÷시가총액)
+      final todayParticipation = marketCap > 0 ? tradingValue / marketCap : 0.0;
+
+      final accelHistory = _accelerationHistoryBuilder.build(
+        priceHistory: priceHistory,
+        sharesOutstanding: sharesOutstanding,
+        todayDate: _formatDate(now),
+      );
+
+      double? accelerationScore;
+      double? baseParticipationScore;
+
+      if (accelHistory.isUsable) {
+        accelerationScore = _accelerationCalculator.calculate(
+          metrics: AccelerationMetrics(
+            todayParticipation: todayParticipation,
+            average1Day: accelHistory.average1Day,
+            average5Days: accelHistory.average5Days,
+            average20Days: accelHistory.average20Days,
+          ),
+          historicalRatio1Day: accelHistory.historicalRatio1Day,
+          historicalRatio5Days: accelHistory.historicalRatio5Days,
+          historicalRatio20Days: accelHistory.historicalRatio20Days,
+        );
+        baseParticipationScore = (scaleScore + accelerationScore) / 2.0;
+      }
+
       setState(() {
         _quote = quote;
         _scaleScore = scaleScore;
+        _accelerationScore = accelerationScore;
+        _baseParticipationScore = baseParticipationScore;
         _marketCap = marketCap;
+        _historyDayCount = historicalScaleValues.length;
         _isLoading = false;
       });
     } catch (e) {
@@ -121,9 +184,21 @@ class _StockTestScreenState extends State<StockTestScreen> {
                 'Scale Score (실데이터) : ${_scaleScore?.toStringAsFixed(2) ?? "-"}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
+              Text(
+                'Acceleration Score (실데이터) : ${_accelerationScore?.toStringAsFixed(2) ?? "데이터 부족(20일치 미만)"}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Base Participation Score : ${_baseParticipationScore?.toStringAsFixed(2) ?? "-"}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               const Text(
-                '※ 과거 기록은 아직 임시값 — 백엔드 연결 전까지는 참고용',
+                '※ 과거 기록은 기간별시세 API로 실제 backfill됨 (아직 저장은 안 함, 조회할 때마다 새로 받아옴)',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              Text(
+                '※ 비교에 쓴 과거 기록 개수 : ${_historyDayCount ?? 0}일',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
           ],
