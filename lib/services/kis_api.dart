@@ -8,11 +8,20 @@ class StockQuote {
     required this.currentPrice,
     required this.volume,
     required this.tradingValue,
+    required this.marketCap,
+    required this.sharesOutstanding,
   });
 
   final String currentPrice;
   final String volume;
   final String tradingValue;
+
+  /// hts_avls. 억원 단위로 옴 (백만원 아님 — 실제 시세로 검증함)
+  final String marketCap;
+
+  /// lstn_stcn, 상장주식수(주 단위). marketCap 대신 이걸로
+  /// "상장주식수 × 현재가"를 직접 계산하면 단위 실수가 생길 수 없음
+  final String sharesOutstanding;
 }
 
 class KisApi {
@@ -91,6 +100,8 @@ class KisApi {
       currentPrice: output['stck_prpr']?.toString() ?? '-',
       volume: output['acml_vol']?.toString() ?? '-',
       tradingValue: output['acml_tr_pbmn']?.toString() ?? '-',
+      marketCap: output['hts_avls']?.toString() ?? '-',
+      sharesOutstanding: output['lstn_stcn']?.toString() ?? '-',
     );
   }
 }
