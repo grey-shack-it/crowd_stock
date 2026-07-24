@@ -12,12 +12,14 @@ class ScaleHistoryBuilder {
   List<double> build({
     required List<DailyPricePoint> priceHistory,
     required double sharesOutstanding,
+    required String excludeDate, // yyyyMMdd, 보통 targetDate (자기 자신은 과거 기록이 아님)
   }) {
     if (sharesOutstanding <= 0) {
       return [];
     }
 
     return priceHistory
+        .where((point) => point.date != excludeDate)
         .map((point) {
           final marketCap = sharesOutstanding * point.closePrice;
           if (marketCap <= 0) return 0.0;
