@@ -5,15 +5,12 @@ class CrowdEngineResult {
 
   final double brokerSpreadScore;
   final double investorSpreadScore;
-  final double nonArbitrageScore;
-  final double arbitrageScore;
+  final double programScore; // 프로그램매매(차익+비차익 합계) percentile
 
   final double participationSpreadScore;
   final double confidenceMultiplier;
 
   final double crowdScore;
-
-  final ProgramInterpretation programInterpretation;
 
   const CrowdEngineResult({
     required this.scaleScore,
@@ -21,13 +18,9 @@ class CrowdEngineResult {
     required this.baseParticipationScore,
     required this.brokerSpreadScore,
     required this.investorSpreadScore,
-    required this.nonArbitrageScore,
-    required this.arbitrageScore,
+    required this.programScore,
     required this.participationSpreadScore,
     required this.confidenceMultiplier,
     required this.crowdScore,
-    required this.programInterpretation,
   });
 }
-
-enum ProgramInterpretation { arbitrageDominant, neutral, nonArbitrageDominant }

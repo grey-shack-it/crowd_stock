@@ -10,11 +10,9 @@ import '../engine/calculators/acceleration_calculator.dart';
 import '../engine/calculators/broker_spread_calculator.dart';
 import '../engine/calculators/investor_spread_calculator.dart';
 import '../engine/calculators/program_confidence_calculator.dart';
-import '../engine/calculators/arbitrage_confidence_calculator.dart';
 import '../engine/calculators/participation_spread_calculator.dart';
 import '../engine/calculators/confidence_multiplier_calculator.dart';
 import '../engine/calculators/default_crowd_score_calculator.dart';
-import '../engine/interpreters/program_interpreter.dart';
 import '../engine/crowd_engine.dart';
 
 class CrowdEngineTestScreen extends StatefulWidget {
@@ -79,6 +77,7 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
       institutionTradingValue: 180000000,
     );
 
+    // 이제 차익/비차익 구분 없이 "전체 프로그램매매"로 단순화
     final programMetrics = broadParticipation
         ? ProgramMetrics(
             todayArbitrageTradingValue: 60000000,
@@ -99,16 +98,14 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
     final historicalRatio20Days = [0.70, 0.85, 1.00, 1.15, 1.30];
     final historicalHhiValues = [0.18, 0.22, 0.26, 0.30, 0.35];
     // TVD는 원(₩) 단위 raw 값이라, 과거 기록도 같은 단위로 맞춰야 한다.
-    // (기존 0~1 소수값은 단위가 안 맞아 투자자 점수가 항상 100으로 찍히던 버그)
-    final historicalTvdValues = [
-      20000000.0,
-      50000000.0,
-      90000000.0,
-      150000000.0,
-      250000000.0,
+    final List<double> historicalTvdValues = [
+      20000000,
+      50000000,
+      90000000,
+      150000000,
+      250000000,
     ];
-    final historicalNonArbitrageValues = [0.80, 0.90, 1.00, 1.10, 1.20];
-    final historicalArbitrageValues = [0.80, 0.90, 1.00, 1.10, 1.20];
+    final historicalProgramValues = [0.80, 0.90, 1.00, 1.10, 1.20];
 
     final percentileCalculator = PercentileCalculator();
 
@@ -128,13 +125,9 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
       programConfidenceCalculator: ProgramConfidenceCalculator(
         percentileCalculator: percentileCalculator,
       ),
-      arbitrageConfidenceCalculator: ArbitrageConfidenceCalculator(
-        percentileCalculator: percentileCalculator,
-      ),
       participationSpreadCalculator: const ParticipationSpreadCalculator(),
       confidenceMultiplierCalculator: const ConfidenceMultiplierCalculator(),
       crowdScoreCalculator: const DefaultCrowdScoreCalculator(),
-      programInterpreter: const ProgramInterpreter(),
     );
 
     final engineResult = crowdEngine.calculate(
@@ -150,8 +143,7 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
       averageInvestorMetrics: averageInvestorMetrics,
       historicalTvdValues: historicalTvdValues,
       programMetrics: programMetrics,
-      historicalNonArbitrageValues: historicalNonArbitrageValues,
-      historicalArbitrageValues: historicalArbitrageValues,
+      historicalProgramValues: historicalProgramValues,
     );
 
     setState(() {
@@ -167,8 +159,7 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
 
         Broker : ${engineResult.brokerSpreadScore.toStringAsFixed(2)}
         Investor : ${engineResult.investorSpreadScore.toStringAsFixed(2)}
-        비차익 : ${engineResult.nonArbitrageScore.toStringAsFixed(2)}
-        차익 : ${engineResult.arbitrageScore.toStringAsFixed(2)}
+        프로그램매매(전체) : ${engineResult.programScore.toStringAsFixed(2)}
         ''';
     });
   }
