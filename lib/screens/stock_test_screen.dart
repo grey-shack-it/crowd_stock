@@ -4,6 +4,7 @@ import '../services/scale_history_builder.dart';
 import '../services/acceleration_history_builder.dart';
 import '../services/investor_history_builder.dart';
 import '../services/program_history_builder.dart';
+import '../services/supabase_broker_repository.dart';
 import '../engine/metrics/scale_metrics.dart';
 import '../engine/metrics/acceleration_metrics.dart';
 import '../engine/metrics/investor_metrics.dart';
@@ -12,6 +13,9 @@ import '../engine/calculators/scale_calculator.dart';
 import '../engine/calculators/acceleration_calculator.dart';
 import '../engine/calculators/investor_spread_calculator.dart';
 import '../engine/calculators/program_confidence_calculator.dart';
+import '../engine/calculators/participation_spread_calculator.dart';
+import '../engine/calculators/confidence_multiplier_calculator.dart';
+import '../engine/calculators/default_crowd_score_calculator.dart';
 import '../engine/statistics/percentile_calculator.dart';
 
 class StockTestScreen extends StatefulWidget {
@@ -29,19 +33,34 @@ class _StockTestScreenState extends State<StockTestScreen> {
     percentileCalculator: PercentileCalculator(),
   );
   final ScaleHistoryBuilder _scaleHistoryBuilder = const ScaleHistoryBuilder();
-  final AccelerationCalculator _accelerationCalculator = const AccelerationCalculator(
-    percentileCalculator: PercentileCalculator(),
-  );
+  final AccelerationCalculator _accelerationCalculator =
+      const AccelerationCalculator(
+        percentileCalculator: PercentileCalculator(),
+      );
   final AccelerationHistoryBuilder _accelerationHistoryBuilder =
       const AccelerationHistoryBuilder();
-  final InvestorSpreadCalculator _investorSpreadCalculator = const InvestorSpreadCalculator(
-    percentileCalculator: PercentileCalculator(),
-  );
-  final InvestorHistoryBuilder _investorHistoryBuilder = const InvestorHistoryBuilder();
-  final ProgramConfidenceCalculator _programConfidenceCalculator = const ProgramConfidenceCalculator(
-    percentileCalculator: PercentileCalculator(),
-  );
-  final ProgramHistoryBuilder _programHistoryBuilder = const ProgramHistoryBuilder();
+  final InvestorSpreadCalculator _investorSpreadCalculator =
+      const InvestorSpreadCalculator(
+        percentileCalculator: PercentileCalculator(),
+      );
+  final InvestorHistoryBuilder _investorHistoryBuilder =
+      const InvestorHistoryBuilder();
+  final ProgramConfidenceCalculator _programConfidenceCalculator =
+      const ProgramConfidenceCalculator(
+        percentileCalculator: PercentileCalculator(),
+      );
+  final ProgramHistoryBuilder _programHistoryBuilder =
+      const ProgramHistoryBuilder();
+  final SupabaseBrokerRepository _brokerRepository = SupabaseBrokerRepository();
+  final PercentileCalculator _percentileCalculator =
+      const PercentileCalculator();
+  final ParticipationSpreadCalculator _participationSpreadCalculator =
+      const ParticipationSpreadCalculator();
+  final ConfidenceMultiplierCalculator _confidenceMultiplierCalculator =
+      const ConfidenceMultiplierCalculator();
+  final DefaultCrowdScoreCalculator _crowdScoreCalculator =
+      const DefaultCrowdScoreCalculator();
+
   final TextEditingController _stockController = TextEditingController(
     text: '005930',
   );
@@ -55,7 +74,11 @@ class _StockTestScreenState extends State<StockTestScreen> {
   double? _accelerationScore;
   double? _investorScore;
   double? _programScore;
+  double? _brokerScore;
   double? _baseParticipationScore;
+  double? _participationSpreadScore;
+  double? _confidenceMultiplier;
+  double? _crowdScore;
   double? _marketCap;
   int? _historyDayCount;
 
@@ -64,6 +87,12 @@ class _StockTestScreenState extends State<StockTestScreen> {
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
     return '$y$m$d';
+  }
+
+  /// Supabase(Postgres date)는 yyyy-MM-dd 형식을 쓴다. KIS API는 yyyyMMdd라
+  /// 형식이 다르므로 변환이 필요하다.
+  String _toDashedDate(String yyyymmdd) {
+    return '${yyyymmdd.substring(0, 4)}-${yyyymmdd.substring(4, 6)}-${yyyymmdd.substring(6, 8)}';
   }
 
   /// 직전 영업일(어제 이전의 가장 최근 평일). 공휴일은 아직 감안 안 함(v1).
@@ -100,7 +129,9 @@ class _StockTestScreenState extends State<StockTestScreen> {
         endDate: targetDate,
       );
 
-      final targetRows = priceHistory.where((p) => p.date == targetDate).toList();
+      final targetRows = priceHistory
+          .where((p) => p.date == targetDate)
+          .toList();
       final targetRow = targetRows.isEmpty ? null : targetRows.first;
 
       if (targetRow == null || sharesOutstanding <= 0) {
@@ -124,8 +155,9 @@ class _StockTestScreenState extends State<StockTestScreen> {
         historicalScaleValues: historicalScaleValues,
       );
 
-      final targetParticipation =
-          targetMarketCap > 0 ? targetTradingValue / targetMarketCap : 0.0;
+      final targetParticipation = targetMarketCap > 0
+          ? targetTradingValue / targetMarketCap
+          : 0.0;
 
       final accelHistory = _accelerationHistoryBuilder.build(
         priceHistory: priceHistory,
@@ -201,6 +233,43 @@ class _StockTestScreenState extends State<StockTestScreen> {
         );
       }
 
+      // 회원사 집중도(HHI) — Supabase에 매일 자동 적재된 것을 읽어옴
+      final brokerResult = await _brokerRepository.fetch(
+        stockCode: _currentStockCode,
+        targetDate: _toDashedDate(targetDate),
+      );
+
+      double? brokerScore;
+      if (brokerResult.isUsable) {
+        brokerScore = _percentileCalculator.calculate(
+          value: brokerResult.todayHhi!,
+          history: brokerResult.historicalHhiValues,
+        );
+      }
+
+      // 네 지표가 모두 준비됐을 때만 참여확산도 → Confidence Multiplier → Crowd Score까지 계산
+      double? participationSpreadScore;
+      double? confidenceMultiplier;
+      double? crowdScore;
+
+      if (brokerScore != null &&
+          investorScore != null &&
+          programScore != null &&
+          baseParticipationScore != null) {
+        participationSpreadScore = _participationSpreadCalculator.calculate(
+          brokerScore: brokerScore,
+          investorScore: investorScore,
+          programScore: programScore,
+        );
+        confidenceMultiplier = _confidenceMultiplierCalculator.calculate(
+          participationSpreadScore,
+        );
+        crowdScore = _crowdScoreCalculator.calculate(
+          baseParticipationScore: baseParticipationScore,
+          confidenceMultiplier: confidenceMultiplier,
+        );
+      }
+
       setState(() {
         _quote = quote;
         _targetDate = targetDate;
@@ -208,7 +277,11 @@ class _StockTestScreenState extends State<StockTestScreen> {
         _accelerationScore = accelerationScore;
         _investorScore = investorScore;
         _programScore = programScore;
+        _brokerScore = brokerScore;
         _baseParticipationScore = baseParticipationScore;
+        _participationSpreadScore = participationSpreadScore;
+        _confidenceMultiplier = confidenceMultiplier;
+        _crowdScore = crowdScore;
         _marketCap = targetMarketCap;
         _historyDayCount = historicalScaleValues.length;
         _isLoading = false;
@@ -260,36 +333,53 @@ class _StockTestScreenState extends State<StockTestScreen> {
               const SizedBox(height: 12),
               Text('상장주식수 : ${_quote!.sharesOutstanding} 주'),
               const SizedBox(height: 8),
+              Text(
+                '시가총액(기준일 종가 기준) : ${_marketCap?.toStringAsFixed(0) ?? "-"} 원',
+              ),
 
-              Text('시가총액(기준일 종가 기준) : ${_marketCap?.toStringAsFixed(0) ?? "-"} 원'),
-              const SizedBox(height: 16),
+              const Divider(height: 32),
 
               Text(
-                'Scale Score : ${_scaleScore?.toStringAsFixed(2) ?? "-"}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Crowd Score : ${_crowdScore?.toStringAsFixed(2) ?? "계산 불가 (아래 지표 중 부족한 것 있음)"}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
               ),
               Text(
-                'Acceleration Score : ${_accelerationScore?.toStringAsFixed(2) ?? "데이터 부족(20일치 미만)"}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Confidence Multiplier : ${_confidenceMultiplier != null ? "${_confidenceMultiplier!.toStringAsFixed(2)}배" : "-"}',
               ),
+              Text(
+                '참여확산도 : ${_participationSpreadScore?.toStringAsFixed(2) ?? "-"}',
+              ),
+
+              const Divider(height: 32),
+
               Text(
                 'Base Participation Score : ${_baseParticipationScore?.toStringAsFixed(2) ?? "-"}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text('  ├ Scale : ${_scaleScore?.toStringAsFixed(2) ?? "-"}'),
+              Text(
+                '  └ Acceleration : ${_accelerationScore?.toStringAsFixed(2) ?? "데이터 부족(20일치 미만)"}',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Broker(회원사) : ${_brokerScore?.toStringAsFixed(2) ?? "Supabase 기록 부족"}',
               ),
               Text(
-                'Investor Spread Score : ${_investorScore?.toStringAsFixed(2) ?? "데이터 부족"}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Investor(투자자) : ${_investorScore?.toStringAsFixed(2) ?? "데이터 부족"}',
               ),
               Text(
-                'Program Score (전체 합계) : ${_programScore?.toStringAsFixed(2) ?? "데이터 부족"}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Program(프로그램매매) : ${_programScore?.toStringAsFixed(2) ?? "데이터 부족"}',
               ),
+
+              const SizedBox(height: 16),
               const Text(
                 '※ 기준일은 직전 영업일 확정값 — 장중 실시간 값이 아니라 일관된 비교가 가능함',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               Text(
-                '※ 비교에 쓴 과거 기록 개수 : ${_historyDayCount ?? 0}일',
+                '※ Scale 비교에 쓴 과거 기록 개수 : ${_historyDayCount ?? 0}일',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
