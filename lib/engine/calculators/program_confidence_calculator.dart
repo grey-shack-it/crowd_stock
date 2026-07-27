@@ -17,16 +17,12 @@ class ProgramConfidenceCalculator {
     required ProgramMetrics metrics,
     required List<double> historicalProgramValues,
   }) {
-    final todayTotal =
-        metrics.todayArbitrageTradingValue + metrics.todayNonArbitrageTradingValue;
-    final averageTotal =
-        metrics.averageArbitrageTradingValue + metrics.averageNonArbitrageTradingValue;
-
-    if (averageTotal <= 0) {
+    if (metrics.averageProgramTradingValue <= 0) {
       return 50.0;
     }
 
-    final ratioChange = todayTotal / averageTotal;
+    final ratioChange =
+        metrics.todayProgramTradingValue / metrics.averageProgramTradingValue;
 
     return percentileCalculator.calculate(
       value: ratioChange,

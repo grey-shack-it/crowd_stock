@@ -3,12 +3,15 @@ import '../services/kis_api.dart';
 import '../services/scale_history_builder.dart';
 import '../services/acceleration_history_builder.dart';
 import '../services/investor_history_builder.dart';
+import '../services/program_history_builder.dart';
 import '../engine/metrics/scale_metrics.dart';
 import '../engine/metrics/acceleration_metrics.dart';
 import '../engine/metrics/investor_metrics.dart';
+import '../engine/metrics/program_metrics.dart';
 import '../engine/calculators/scale_calculator.dart';
 import '../engine/calculators/acceleration_calculator.dart';
 import '../engine/calculators/investor_spread_calculator.dart';
+import '../engine/calculators/program_confidence_calculator.dart';
 import '../engine/statistics/percentile_calculator.dart';
 
 class StockTestScreen extends StatefulWidget {
@@ -26,18 +29,19 @@ class _StockTestScreenState extends State<StockTestScreen> {
     percentileCalculator: PercentileCalculator(),
   );
   final ScaleHistoryBuilder _scaleHistoryBuilder = const ScaleHistoryBuilder();
-  final AccelerationCalculator _accelerationCalculator =
-      const AccelerationCalculator(
-        percentileCalculator: PercentileCalculator(),
-      );
+  final AccelerationCalculator _accelerationCalculator = const AccelerationCalculator(
+    percentileCalculator: PercentileCalculator(),
+  );
   final AccelerationHistoryBuilder _accelerationHistoryBuilder =
       const AccelerationHistoryBuilder();
-  final InvestorSpreadCalculator _investorSpreadCalculator =
-      const InvestorSpreadCalculator(
-        percentileCalculator: PercentileCalculator(),
-      );
-  final InvestorHistoryBuilder _investorHistoryBuilder =
-      const InvestorHistoryBuilder();
+  final InvestorSpreadCalculator _investorSpreadCalculator = const InvestorSpreadCalculator(
+    percentileCalculator: PercentileCalculator(),
+  );
+  final InvestorHistoryBuilder _investorHistoryBuilder = const InvestorHistoryBuilder();
+  final ProgramConfidenceCalculator _programConfidenceCalculator = const ProgramConfidenceCalculator(
+    percentileCalculator: PercentileCalculator(),
+  );
+  final ProgramHistoryBuilder _programHistoryBuilder = const ProgramHistoryBuilder();
   final TextEditingController _stockController = TextEditingController(
     text: '005930',
   );
@@ -50,6 +54,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
   double? _scaleScore;
   double? _accelerationScore;
   double? _investorScore;
+  double? _programScore;
   double? _baseParticipationScore;
   double? _marketCap;
   int? _historyDayCount;
@@ -95,9 +100,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
         endDate: targetDate,
       );
 
-      final targetRows = priceHistory
-          .where((p) => p.date == targetDate)
-          .toList();
+      final targetRows = priceHistory.where((p) => p.date == targetDate).toList();
       final targetRow = targetRows.isEmpty ? null : targetRows.first;
 
       if (targetRow == null || sharesOutstanding <= 0) {
@@ -121,9 +124,8 @@ class _StockTestScreenState extends State<StockTestScreen> {
         historicalScaleValues: historicalScaleValues,
       );
 
-      final targetParticipation = targetMarketCap > 0
-          ? targetTradingValue / targetMarketCap
-          : 0.0;
+      final targetParticipation =
+          targetMarketCap > 0 ? targetTradingValue / targetMarketCap : 0.0;
 
       final accelHistory = _accelerationHistoryBuilder.build(
         priceHistory: priceHistory,
@@ -177,12 +179,35 @@ class _StockTestScreenState extends State<StockTestScreen> {
         );
       }
 
+      // 프로그램매매(전체 합계) — backfill 가능
+      final programHistory = await _kisApi.fetchProgramTradeHistory(
+        stockCode: _currentStockCode,
+        date: targetDate,
+      );
+
+      final programResult = _programHistoryBuilder.build(
+        history: programHistory,
+        todayDate: targetDate,
+      );
+
+      double? programScore;
+      if (programResult.isUsable) {
+        programScore = _programConfidenceCalculator.calculate(
+          metrics: ProgramMetrics(
+            todayProgramTradingValue: programResult.todayValue,
+            averageProgramTradingValue: programResult.averageValue,
+          ),
+          historicalProgramValues: programResult.historicalProgramValues,
+        );
+      }
+
       setState(() {
         _quote = quote;
         _targetDate = targetDate;
         _scaleScore = scaleScore;
         _accelerationScore = accelerationScore;
         _investorScore = investorScore;
+        _programScore = programScore;
         _baseParticipationScore = baseParticipationScore;
         _marketCap = targetMarketCap;
         _historyDayCount = historicalScaleValues.length;
@@ -236,9 +261,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
               Text('상장주식수 : ${_quote!.sharesOutstanding} 주'),
               const SizedBox(height: 8),
 
-              Text(
-                '시가총액(기준일 종가 기준) : ${_marketCap?.toStringAsFixed(0) ?? "-"} 원',
-              ),
+              Text('시가총액(기준일 종가 기준) : ${_marketCap?.toStringAsFixed(0) ?? "-"} 원'),
               const SizedBox(height: 16),
 
               Text(
@@ -255,6 +278,10 @@ class _StockTestScreenState extends State<StockTestScreen> {
               ),
               Text(
                 'Investor Spread Score : ${_investorScore?.toStringAsFixed(2) ?? "데이터 부족"}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Program Score (전체 합계) : ${_programScore?.toStringAsFixed(2) ?? "데이터 부족"}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const Text(

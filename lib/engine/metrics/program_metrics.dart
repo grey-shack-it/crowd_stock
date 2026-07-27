@@ -1,14 +1,9 @@
 class ProgramMetrics {
-  final double todayArbitrageTradingValue;
-  final double todayNonArbitrageTradingValue;
-
-  final double averageArbitrageTradingValue;
-  final double averageNonArbitrageTradingValue;
+  final double todayProgramTradingValue;
+  final double averageProgramTradingValue;
 
   const ProgramMetrics({
-    required this.todayArbitrageTradingValue,
-    required this.todayNonArbitrageTradingValue,
-    required this.averageArbitrageTradingValue,
-    required this.averageNonArbitrageTradingValue,
+    required this.todayProgramTradingValue,
+    required this.averageProgramTradingValue,
   });
 }

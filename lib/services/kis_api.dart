@@ -53,6 +53,18 @@ class InvestorDailyPoint {
   final double foreignValue;
 }
 
+class DailyProgramPoint {
+  const DailyProgramPoint({
+    required this.date,
+    required this.programTradingValue,
+  });
+
+  final String date; // yyyyMMdd
+
+  /// 전체 프로그램매매 거래대금(매도+매수 합계, 원 단위)
+  final double programTradingValue;
+}
+
 class KisApi {
   String? _accessToken;
   DateTime? _tokenCreatedAt;
@@ -177,10 +189,8 @@ class KisApi {
 
     return output2
         .map((row) {
-          final closePrice =
-              double.tryParse(row['stck_clpr']?.toString() ?? '') ?? 0;
-          final tradingValue =
-              double.tryParse(row['acml_tr_pbmn']?.toString() ?? '') ?? 0;
+          final closePrice = double.tryParse(row['stck_clpr']?.toString() ?? '') ?? 0;
+          final tradingValue = double.tryParse(row['acml_tr_pbmn']?.toString() ?? '') ?? 0;
           final date = row['stck_bsop_date']?.toString() ?? '';
 
           return DailyPricePoint(
@@ -254,6 +264,72 @@ class KisApi {
             individualValue: abs(row['prsn_ntby_tr_pbmn']),
             institutionValue: abs(row['orgn_ntby_tr_pbmn']),
             foreignValue: abs(row['frgn_ntby_tr_pbmn']),
+          );
+        })
+        .where((point) => point.date.isNotEmpty)
+        .toList();
+  }
+
+  /// 종목별 프로그램매매추이(일별). 차익/비차익 구분 없이 "전체 합계"만
+  /// 종목별로 backfill 가능하다 (구분된 데이터는 종목별로는 API 자체가 없음).
+  Future<List<DailyProgramPoint>> fetchProgramTradeHistory({
+    required String stockCode,
+    required String date,
+  }) async {
+    final token = await _fetchAccessToken();
+    final List<dynamic> allRows = [];
+    String trCont = '';
+
+    for (var page = 0; page < 10; page++) {
+      final uri =
+          Uri.parse(
+            '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+          ).replace(
+            queryParameters: {
+              'FID_COND_MRKT_DIV_CODE': 'J',
+              'FID_INPUT_ISCD': stockCode,
+              'FID_INPUT_DATE_1': date,
+            },
+          );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'authorization': 'Bearer $token',
+          'appkey': KisConfig.appKey,
+          'appsecret': KisConfig.appSecret,
+          'tr_id': 'FHPPG04650201',
+          'tr_cont': trCont,
+          'custtype': 'P',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('프로그램매매추이 조회 실패: ${response.body}');
+      }
+
+      final data = jsonDecode(response.body);
+      // output이 배열로 오는지 확인됐던 회원사 API 사례가 있어 방어적으로 처리
+      final rawOutput = data['output2'] ?? data['output'] ?? [];
+      final List<dynamic> rows = rawOutput is List ? rawOutput : [rawOutput];
+      allRows.addAll(rows);
+
+      trCont = response.headers['tr_cont'] ?? '';
+      if (trCont != 'M' && trCont != 'F') {
+        break;
+      }
+      trCont = 'N';
+    }
+
+    double num(dynamic v) => double.tryParse(v?.toString() ?? '') ?? 0;
+
+    return allRows
+        .map((row) {
+          final sell = num(row['whol_smtn_seln_tr_pbmn']);
+          final buy = num(row['whol_smtn_shnu_tr_pbmn']);
+          return DailyProgramPoint(
+            date: row['stck_bsop_date']?.toString() ?? '',
+            programTradingValue: sell + buy,
           );
         })
         .where((point) => point.date.isNotEmpty)

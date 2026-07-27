@@ -77,19 +77,15 @@ class _CrowdEngineTestScreenState extends State<CrowdEngineTestScreen> {
       institutionTradingValue: 180000000,
     );
 
-    // 이제 차익/비차익 구분 없이 "전체 프로그램매매"로 단순화
+    // 이제 차익/비차익 구분 없이 "전체 프로그램매매 거래대금"으로 단순화
     final programMetrics = broadParticipation
-        ? ProgramMetrics(
-            todayArbitrageTradingValue: 60000000,
-            todayNonArbitrageTradingValue: 240000000,
-            averageArbitrageTradingValue: 120000000,
-            averageNonArbitrageTradingValue: 180000000,
+        ? const ProgramMetrics(
+            todayProgramTradingValue: 310000000,
+            averageProgramTradingValue: 300000000,
           )
-        : ProgramMetrics(
-            todayArbitrageTradingValue: 180000000,
-            todayNonArbitrageTradingValue: 120000000,
-            averageArbitrageTradingValue: 120000000,
-            averageNonArbitrageTradingValue: 180000000,
+        : const ProgramMetrics(
+            todayProgramTradingValue: 310000000,
+            averageProgramTradingValue: 300000000,
           );
 
     final historicalScaleValues = [0.0012, 0.0015, 0.0017, 0.0020, 0.0023];
