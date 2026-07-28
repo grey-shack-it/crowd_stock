@@ -1,7 +1,31 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../config/kis_config.dart';
-import 'investor_flow.dart';
+import '../config/supabase_config.dart';
+
+/// KIS 호출은 이제 전부 Supabase Edge Function(kis-proxy)을 거쳐요.
+/// 이 클래스는 더 이상 KIS appkey/appsecret을 몰라요 — 서버가 대신 알고 있어요.
+class _KisProxy {
+  static final Uri _base = Uri.parse('$supabaseUrl/functions/v1/kis-proxy');
+
+  static Future<http.Response> get({
+    required String path,
+    required Map<String, String> queryParams,
+    required String trId,
+    String trCont = '',
+  }) {
+    final uri = _base.replace(queryParameters: {'path': path, ...queryParams});
+
+    return http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $supabaseAnonKey',
+        'apikey': supabaseAnonKey,
+        'x-kis-tr-id': trId,
+        'x-kis-tr-cont': trCont,
+      },
+    );
+  }
+}
 
 class DailyPricePoint {
   const DailyPricePoint({
@@ -13,6 +37,30 @@ class DailyPricePoint {
   final String date; // yyyyMMdd
   final double closePrice;
   final double tradingValue;
+}
+
+class InvestorDailyPoint {
+  const InvestorDailyPoint({
+    required this.date,
+    required this.individualValue,
+    required this.institutionValue,
+    required this.foreignValue,
+  });
+
+  final String date; // yyyyMMdd
+  final double individualValue;
+  final double institutionValue;
+  final double foreignValue;
+}
+
+class DailyProgramPoint {
+  const DailyProgramPoint({
+    required this.date,
+    required this.programTradingValue,
+  });
+
+  final String date; // yyyyMMdd
+  final double programTradingValue;
 }
 
 class StockQuote {
@@ -27,115 +75,24 @@ class StockQuote {
   final String currentPrice;
   final String volume;
   final String tradingValue;
-
-  /// hts_avls. 억원 단위로 옴 (백만원 아님 — 실제 시세로 검증함)
   final String marketCap;
-
-  /// lstn_stcn, 상장주식수(주 단위). marketCap 대신 이걸로
-  /// "상장주식수 × 현재가"를 직접 계산하면 단위 실수가 생길 수 없음
   final String sharesOutstanding;
 }
 
-class InvestorDailyPoint {
-  const InvestorDailyPoint({
-    required this.date,
-    required this.individualValue,
-    required this.institutionValue,
-    required this.foreignValue,
-  });
-
-  final String date; // yyyyMMdd
-
-  /// 순매수 거래대금의 절대값(원). 방향(매수/매도)보다 "얼마나 활발히
-  /// 움직였나"를 보려는 목적이라 절대값으로 다룬다.
-  final double individualValue;
-  final double institutionValue;
-  final double foreignValue;
-}
-
-class DailyProgramPoint {
-  const DailyProgramPoint({
-    required this.date,
-    required this.programTradingValue,
-  });
-
-  final String date; // yyyyMMdd
-
-  /// 전체 프로그램매매 거래대금(매도+매수 합계, 원 단위)
-  final double programTradingValue;
-}
-
 class KisApi {
-  String? _accessToken;
-  DateTime? _tokenCreatedAt;
-
-  Future<String> _fetchAccessToken() async {
-    if (_accessToken != null && _tokenCreatedAt != null) {
-      final minutes = DateTime.now().difference(_tokenCreatedAt!).inMinutes;
-
-      if (minutes < 50) {
-        return _accessToken!;
-      }
-    }
-
-    final uri = Uri.parse('${KisConfig.baseUrl}/oauth2/tokenP');
-
-    final response = await http.post(
-      uri,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'grant_type': 'client_credentials',
-        'appkey': KisConfig.appKey,
-        'appsecret': KisConfig.appSecret,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception('토큰 발급 실패: ${response.body}');
-    }
-
-    final data = jsonDecode(response.body);
-
-    _accessToken = data['access_token'];
-    _tokenCreatedAt = DateTime.now();
-
-    return _accessToken!;
-  }
-
   Future<StockQuote> fetchStockQuote(String stockCode) async {
-    Future<InvestorFlow> fetchInvestorFlow(String stockCode) async {
-      throw UnimplementedError();
-    }
-
-    final token = await _fetchAccessToken();
-
-    final uri =
-        Uri.parse(
-          '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price',
-        ).replace(
-          queryParameters: {
-            'FID_COND_MRKT_DIV_CODE': 'J',
-            'FID_INPUT_ISCD': stockCode,
-          },
-        );
-
-    final response = await http.get(
-      uri,
-      headers: {
-        'authorization': 'Bearer $token',
-        'appkey': KisConfig.appKey,
-        'appsecret': KisConfig.appSecret,
-        'tr_id': KisConfig.trIdInquirePrice,
-        'custtype': 'P',
-      },
+    final response = await _KisProxy.get(
+      path: '/uapi/domestic-stock/v1/quotations/inquire-price',
+      queryParams: {'FID_COND_MRKT_DIV_CODE': 'J', 'FID_INPUT_ISCD': stockCode},
+      trId: 'FHKST01010100',
     );
 
     if (response.statusCode != 200) {
-      throw Exception('시세 조회 실패: ${response.body}');
+      throw Exception('현재가 조회 실패: ${response.body}');
     }
 
     final data = jsonDecode(response.body);
-    final output = data['output'];
+    final output = data['output'] ?? {};
 
     return StockQuote(
       currentPrice: output['stck_prpr']?.toString() ?? '-',
@@ -146,38 +103,22 @@ class KisApi {
     );
   }
 
-  /// 국내주식기간별시세(일/주/월/년), 종목당 한 번의 호출로 최대 100영업일치를 준다.
-  /// startDate/endDate는 yyyyMMdd 형식.
   Future<List<DailyPricePoint>> fetchDailyPriceHistory({
     required String stockCode,
     required String startDate,
     required String endDate,
   }) async {
-    final token = await _fetchAccessToken();
-
-    final uri =
-        Uri.parse(
-          '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
-        ).replace(
-          queryParameters: {
-            'FID_COND_MRKT_DIV_CODE': 'J',
-            'FID_INPUT_ISCD': stockCode,
-            'FID_INPUT_DATE_1': startDate,
-            'FID_INPUT_DATE_2': endDate,
-            'FID_PERIOD_DIV_CODE': 'D',
-            'FID_ORG_ADJ_PRC': '1',
-          },
-        );
-
-    final response = await http.get(
-      uri,
-      headers: {
-        'authorization': 'Bearer $token',
-        'appkey': KisConfig.appKey,
-        'appsecret': KisConfig.appSecret,
-        'tr_id': 'FHKST03010100',
-        'custtype': 'P',
+    final response = await _KisProxy.get(
+      path: '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+      queryParams: {
+        'FID_COND_MRKT_DIV_CODE': 'J',
+        'FID_INPUT_ISCD': stockCode,
+        'FID_INPUT_DATE_1': startDate,
+        'FID_INPUT_DATE_2': endDate,
+        'FID_PERIOD_DIV_CODE': 'D',
+        'FID_ORG_ADJ_PRC': '1',
       },
+      trId: 'FHKST03010100',
     );
 
     if (response.statusCode != 200) {
@@ -189,8 +130,10 @@ class KisApi {
 
     return output2
         .map((row) {
-          final closePrice = double.tryParse(row['stck_clpr']?.toString() ?? '') ?? 0;
-          final tradingValue = double.tryParse(row['acml_tr_pbmn']?.toString() ?? '') ?? 0;
+          final closePrice =
+              double.tryParse(row['stck_clpr']?.toString() ?? '') ?? 0;
+          final tradingValue =
+              double.tryParse(row['acml_tr_pbmn']?.toString() ?? '') ?? 0;
           final date = row['stck_bsop_date']?.toString() ?? '';
 
           return DailyPricePoint(
@@ -199,45 +142,30 @@ class KisApi {
             tradingValue: tradingValue,
           );
         })
-        // 휴장일 등 빈 행(날짜 없음)은 제외
         .where((point) => point.date.isNotEmpty && point.closePrice > 0)
         .toList();
   }
 
-  /// 종목별 투자자매매동향(일별). 한 번에 다 안 올 수 있어서, 응답 헤더의
-  /// tr_cont가 "M"/"F"(더 있음)인 동안 이어서 호출해 전부 모은다.
   Future<List<InvestorDailyPoint>> fetchInvestorTradeHistory({
     required String stockCode,
     required String date,
   }) async {
-    final token = await _fetchAccessToken();
     final List<dynamic> allRows = [];
     String trCont = '';
 
     for (var page = 0; page < 10; page++) {
-      final uri =
-          Uri.parse(
-            '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
-          ).replace(
-            queryParameters: {
-              'FID_COND_MRKT_DIV_CODE': 'J',
-              'FID_INPUT_ISCD': stockCode,
-              'FID_INPUT_DATE_1': date,
-              'FID_ORG_ADJ_PRC': '',
-              'FID_ETC_CLS_CODE': '',
-            },
-          );
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'authorization': 'Bearer $token',
-          'appkey': KisConfig.appKey,
-          'appsecret': KisConfig.appSecret,
-          'tr_id': 'FHPTJ04160001',
-          'tr_cont': trCont,
-          'custtype': 'P',
+      final response = await _KisProxy.get(
+        path:
+            '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+        queryParams: {
+          'FID_COND_MRKT_DIV_CODE': 'J',
+          'FID_INPUT_ISCD': stockCode,
+          'FID_INPUT_DATE_1': date,
+          'FID_ORG_ADJ_PRC': '',
+          'FID_ETC_CLS_CODE': '1',
         },
+        trId: 'FHPTJ04160001',
+        trCont: trCont,
       );
 
       if (response.statusCode != 200) {
@@ -249,10 +177,8 @@ class KisApi {
       allRows.addAll(output2);
 
       trCont = response.headers['tr_cont'] ?? '';
-      if (trCont != 'M' && trCont != 'F') {
-        break; // 더 이상 다음 페이지 없음
-      }
-      trCont = 'N'; // 다음 요청은 "이어서 주세요" 값으로 보냄
+      if (trCont != 'M' && trCont != 'F') break;
+      trCont = 'N';
     }
 
     double abs(dynamic v) => (double.tryParse(v?.toString() ?? '') ?? 0).abs();
@@ -270,38 +196,23 @@ class KisApi {
         .toList();
   }
 
-  /// 종목별 프로그램매매추이(일별). 차익/비차익 구분 없이 "전체 합계"만
-  /// 종목별로 backfill 가능하다 (구분된 데이터는 종목별로는 API 자체가 없음).
   Future<List<DailyProgramPoint>> fetchProgramTradeHistory({
     required String stockCode,
     required String date,
   }) async {
-    final token = await _fetchAccessToken();
     final List<dynamic> allRows = [];
     String trCont = '';
 
     for (var page = 0; page < 10; page++) {
-      final uri =
-          Uri.parse(
-            '${KisConfig.baseUrl}/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
-          ).replace(
-            queryParameters: {
-              'FID_COND_MRKT_DIV_CODE': 'J',
-              'FID_INPUT_ISCD': stockCode,
-              'FID_INPUT_DATE_1': date,
-            },
-          );
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'authorization': 'Bearer $token',
-          'appkey': KisConfig.appKey,
-          'appsecret': KisConfig.appSecret,
-          'tr_id': 'FHPPG04650201',
-          'tr_cont': trCont,
-          'custtype': 'P',
+      final response = await _KisProxy.get(
+        path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+        queryParams: {
+          'FID_COND_MRKT_DIV_CODE': 'J',
+          'FID_INPUT_ISCD': stockCode,
+          'FID_INPUT_DATE_1': date,
         },
+        trId: 'FHPPG04650201',
+        trCont: trCont,
       );
 
       if (response.statusCode != 200) {
@@ -309,15 +220,12 @@ class KisApi {
       }
 
       final data = jsonDecode(response.body);
-      // output이 배열로 오는지 확인됐던 회원사 API 사례가 있어 방어적으로 처리
       final rawOutput = data['output2'] ?? data['output'] ?? [];
       final List<dynamic> rows = rawOutput is List ? rawOutput : [rawOutput];
       allRows.addAll(rows);
 
       trCont = response.headers['tr_cont'] ?? '';
-      if (trCont != 'M' && trCont != 'F') {
-        break;
-      }
+      if (trCont != 'M' && trCont != 'F') break;
       trCont = 'N';
     }
 
