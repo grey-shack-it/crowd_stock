@@ -5,6 +5,7 @@ import '../services/acceleration_history_builder.dart';
 import '../services/investor_history_builder.dart';
 import '../services/program_history_builder.dart';
 import '../services/supabase_broker_repository.dart';
+import 'crowd_score_graph_screen.dart';
 import '../engine/metrics/scale_metrics.dart';
 import '../engine/metrics/acceleration_metrics.dart';
 import '../engine/metrics/investor_metrics.dart';
@@ -381,6 +382,21 @@ class _StockTestScreenState extends State<StockTestScreen> {
               Text(
                 '※ Scale 비교에 쓴 과거 기록 개수 : ${_historyDayCount ?? 0}일',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CrowdScoreGraphScreen(
+                        kisApi: _kisApi,
+                        stockCode: _currentStockCode,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('그래프 보기'),
               ),
             ],
           ],

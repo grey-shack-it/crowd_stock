@@ -153,7 +153,8 @@ class KisApi {
     final List<dynamic> allRows = [];
     String trCont = '';
 
-    for (var page = 0; page < 10; page++) {
+    for (var page = 0; page < 60; page++) {
+      // 1년치까지 커버하도록 여유있게
       final response = await _KisProxy.get(
         path:
             '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
@@ -203,7 +204,8 @@ class KisApi {
     final List<dynamic> allRows = [];
     String trCont = '';
 
-    for (var page = 0; page < 10; page++) {
+    for (var page = 0; page < 60; page++) {
+      // 1년치까지 커버하도록 여유있게
       final response = await _KisProxy.get(
         path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
         queryParams: {

@@ -17,6 +17,26 @@ class BrokerHistoryResult {
 class SupabaseBrokerRepository {
   final SupabaseClient _client = Supabase.instance.client;
 
+  /// 그래프처럼 넓은 기간이 필요할 때 쓰는, 날짜→HHI 전체 매핑.
+  Future<Map<String, double>> fetchAllHistory({
+    required String stockCode,
+  }) async {
+    final rows = await _client
+        .from('stock_daily_metrics')
+        .select('trade_date, broker_hhi')
+        .eq('stock_code', stockCode)
+        .not('broker_hhi', 'is', null)
+        .order('trade_date', ascending: true);
+
+    final map = <String, double>{};
+    for (final row in rows) {
+      final date = row['trade_date'] as String;
+      final hhi = (row['broker_hhi'] as num?)?.toDouble();
+      if (hhi != null) map[date] = hhi;
+    }
+    return map;
+  }
+
   Future<BrokerHistoryResult> fetch({
     required String stockCode,
     required String targetDate, // yyyy-MM-dd
