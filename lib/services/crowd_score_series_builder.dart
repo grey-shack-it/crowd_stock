@@ -57,6 +57,7 @@ class CrowdScorePoint {
 /// 회원사(Broker) 기록이 있는 날짜만 정식 계산, 없는 날짜는 투자자만으로
 /// 근사 계산한다.
 class CrowdScoreSeriesBuilder {
+  final Map<String, String> skippedDates = {}; // 날짜 -> 빠진 이유
   final PercentileCalculator _percentileCalculator =
       const PercentileCalculator();
   final ScaleCalculator _scaleCalculator = const ScaleCalculator(
@@ -91,8 +92,6 @@ class CrowdScoreSeriesBuilder {
   /// [targetDates]는 오래된 날짜 → 최근 날짜 순으로 정렬돼 있어야 한다 (yyyyMMdd).
   /// 데이터가 부족해 계산 자체가 안 되는 날짜는 결과 리스트에서 빠진다
   /// (그래프에서는 그 지점만 건너뛰면 됨).
-  final List<String> skippedDates = []; // 디버그용: 어떤 날짜가 왜 빠졌는지
-
   List<CrowdScorePoint> build({
     required List<String> targetDates,
     required List<DailyPricePoint> priceHistory,
@@ -101,7 +100,6 @@ class CrowdScoreSeriesBuilder {
     required Map<String, double> brokerHistoryByDate,
     required double sharesOutstanding,
   }) {
-    skippedDates.clear();
     final results = <CrowdScorePoint>[];
 
     for (final targetDate in targetDates) {
@@ -113,11 +111,7 @@ class CrowdScoreSeriesBuilder {
         brokerHistoryByDate: brokerHistoryByDate,
         sharesOutstanding: sharesOutstanding,
       );
-      if (point != null) {
-        results.add(point);
-      } else {
-        skippedDates.add(targetDate);
-      }
+      if (point != null) results.add(point);
     }
 
     return results;
@@ -131,14 +125,23 @@ class CrowdScoreSeriesBuilder {
     required Map<String, double> brokerHistoryByDate,
     required double sharesOutstanding,
   }) {
-    if (sharesOutstanding <= 0) return null;
+    if (sharesOutstanding <= 0) {
+      skippedDates[targetDate] = 'sharesOutstanding <= 0';
+      return null;
+    }
 
     final targetRows = priceHistory.where((p) => p.date == targetDate).toList();
-    if (targetRows.isEmpty) return null;
+    if (targetRows.isEmpty) {
+      skippedDates[targetDate] = 'targetRow 없음 (priceHistory에 이 날짜 없음)';
+      return null;
+    }
     final targetRow = targetRows.first;
 
     final targetMarketCap = sharesOutstanding * targetRow.closePrice;
-    if (targetMarketCap <= 0) return null;
+    if (targetMarketCap <= 0) {
+      skippedDates[targetDate] = 'targetMarketCap <= 0';
+      return null;
+    }
     final targetTradingValue = targetRow.tradingValue;
 
     final historicalScaleValues = _scaleHistoryBuilder.build(
@@ -160,7 +163,10 @@ class CrowdScoreSeriesBuilder {
       sharesOutstanding: sharesOutstanding,
       todayDate: targetDate,
     );
-    if (!accelHistory.isUsable) return null;
+    if (!accelHistory.isUsable) {
+      skippedDates[targetDate] = 'accelHistory 사용불가 (20일치 부족)';
+      return null;
+    }
     final accelerationScore = _accelerationCalculator.calculate(
       metrics: AccelerationMetrics(
         todayParticipation: targetParticipation,
@@ -178,7 +184,10 @@ class CrowdScoreSeriesBuilder {
       history: investorHistory,
       todayDate: targetDate,
     );
-    if (!investorResult.isUsable) return null;
+    if (!investorResult.isUsable) {
+      skippedDates[targetDate] = 'investorResult 사용불가 (10일치 부족)';
+      return null;
+    }
     final investorScore = _investorSpreadCalculator.calculate(
       today: InvestorMetrics(
         individualTradingValue: investorResult.todayIndividual,
@@ -197,7 +206,10 @@ class CrowdScoreSeriesBuilder {
       history: programHistory,
       todayDate: targetDate,
     );
-    if (!programResult.isUsable) return null;
+    if (!programResult.isUsable) {
+      skippedDates[targetDate] = 'programResult 사용불가 (10일치 부족)';
+      return null;
+    }
     final programScore = _programConfidenceCalculator.calculate(
       metrics: ProgramMetrics(
         todayProgramTradingValue: programResult.todayValue,

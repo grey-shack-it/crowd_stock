@@ -149,100 +149,161 @@ class KisApi {
   Future<List<InvestorDailyPoint>> fetchInvestorTradeHistory({
     required String stockCode,
     required String date,
+    String? earliestNeededDate,
   }) async {
-    final List<dynamic> allRows = [];
-    String trCont = '';
+    final Map<String, InvestorDailyPoint> merged = {};
+    var anchorDate = date;
 
-    for (var page = 0; page < 60; page++) {
-      // 1년치까지 커버하도록 여유있게
-      final response = await _KisProxy.get(
-        path:
-            '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
-        queryParams: {
-          'FID_COND_MRKT_DIV_CODE': 'J',
-          'FID_INPUT_ISCD': stockCode,
-          'FID_INPUT_DATE_1': date,
-          'FID_ORG_ADJ_PRC': '',
-          'FID_ETC_CLS_CODE': '1',
-        },
-        trId: 'FHPTJ04160001',
-        trCont: trCont,
-      );
+    for (var anchor = 0; anchor < 20; anchor++) {
+      // 기준일 재조정 최대 20번
+      final List<dynamic> allRows = [];
+      String trCont = '';
 
-      if (response.statusCode != 200) {
-        throw Exception('투자자매매동향 조회 실패: ${response.body}');
+      for (var page = 0; page < 10; page++) {
+        final response = await _KisProxy.get(
+          path:
+              '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+          queryParams: {
+            'FID_COND_MRKT_DIV_CODE': 'J',
+            'FID_INPUT_ISCD': stockCode,
+            'FID_INPUT_DATE_1': anchorDate,
+            'FID_ORG_ADJ_PRC': '',
+            'FID_ETC_CLS_CODE': '1',
+          },
+          trId: 'FHPTJ04160001',
+          trCont: trCont,
+        );
+
+        if (response.statusCode != 200) {
+          throw Exception('투자자매매동향 조회 실패: ${response.body}');
+        }
+
+        final data = jsonDecode(response.body);
+        final List<dynamic> output2 = data['output2'] ?? [];
+        allRows.addAll(output2);
+
+        trCont = response.headers['tr_cont'] ?? '';
+        if (trCont != 'M' && trCont != 'F') break;
+        trCont = 'N';
       }
 
-      final data = jsonDecode(response.body);
-      final List<dynamic> output2 = data['output2'] ?? [];
-      allRows.addAll(output2);
+      double abs(dynamic v) =>
+          (double.tryParse(v?.toString() ?? '') ?? 0).abs();
 
-      trCont = response.headers['tr_cont'] ?? '';
-      if (trCont != 'M' && trCont != 'F') break;
-      trCont = 'N';
+      String? oldestDateThisRound;
+      for (final row in allRows) {
+        final rowDate = row['stck_bsop_date']?.toString() ?? '';
+        if (rowDate.isEmpty) continue;
+        merged[rowDate] = InvestorDailyPoint(
+          date: rowDate,
+          individualValue: abs(row['prsn_ntby_tr_pbmn']),
+          institutionValue: abs(row['orgn_ntby_tr_pbmn']),
+          foreignValue: abs(row['frgn_ntby_tr_pbmn']),
+        );
+        if (oldestDateThisRound == null ||
+            rowDate.compareTo(oldestDateThisRound) < 0) {
+          oldestDateThisRound = rowDate;
+        }
+      }
+
+      // 이번 라운드에 새로 받은 게 없거나, 이미 필요한 만큼 과거까지 확보했으면 종료
+      if (oldestDateThisRound == null) break;
+      if (earliestNeededDate == null ||
+          oldestDateThisRound.compareTo(earliestNeededDate) <= 0) {
+        break;
+      }
+
+      // 가장 오래된 날짜 하루 전을 새 기준일로 재조정
+      final d = DateTime(
+        int.parse(oldestDateThisRound.substring(0, 4)),
+        int.parse(oldestDateThisRound.substring(4, 6)),
+        int.parse(oldestDateThisRound.substring(6, 8)),
+      ).subtract(const Duration(days: 1));
+      final nextAnchor =
+          '${d.year.toString().padLeft(4, '0')}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}';
+
+      if (nextAnchor == anchorDate) break; // 안전장치: 진전 없으면 중단
+      anchorDate = nextAnchor;
     }
 
-    double abs(dynamic v) => (double.tryParse(v?.toString() ?? '') ?? 0).abs();
-
-    return allRows
-        .map((row) {
-          return InvestorDailyPoint(
-            date: row['stck_bsop_date']?.toString() ?? '',
-            individualValue: abs(row['prsn_ntby_tr_pbmn']),
-            institutionValue: abs(row['orgn_ntby_tr_pbmn']),
-            foreignValue: abs(row['frgn_ntby_tr_pbmn']),
-          );
-        })
-        .where((point) => point.date.isNotEmpty)
-        .toList();
+    return merged.values.toList();
   }
 
   Future<List<DailyProgramPoint>> fetchProgramTradeHistory({
     required String stockCode,
     required String date,
+    String? earliestNeededDate,
   }) async {
-    final List<dynamic> allRows = [];
-    String trCont = '';
+    final Map<String, DailyProgramPoint> merged = {};
+    var anchorDate = date;
 
-    for (var page = 0; page < 60; page++) {
-      // 1년치까지 커버하도록 여유있게
-      final response = await _KisProxy.get(
-        path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
-        queryParams: {
-          'FID_COND_MRKT_DIV_CODE': 'J',
-          'FID_INPUT_ISCD': stockCode,
-          'FID_INPUT_DATE_1': date,
-        },
-        trId: 'FHPPG04650201',
-        trCont: trCont,
-      );
+    for (var anchor = 0; anchor < 20; anchor++) {
+      final List<dynamic> allRows = [];
+      String trCont = '';
 
-      if (response.statusCode != 200) {
-        throw Exception('프로그램매매추이 조회 실패: ${response.body}');
+      for (var page = 0; page < 10; page++) {
+        final response = await _KisProxy.get(
+          path:
+              '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+          queryParams: {
+            'FID_COND_MRKT_DIV_CODE': 'J',
+            'FID_INPUT_ISCD': stockCode,
+            'FID_INPUT_DATE_1': anchorDate,
+          },
+          trId: 'FHPPG04650201',
+          trCont: trCont,
+        );
+
+        if (response.statusCode != 200) {
+          throw Exception('프로그램매매추이 조회 실패: ${response.body}');
+        }
+
+        final data = jsonDecode(response.body);
+        final rawOutput = data['output2'] ?? data['output'] ?? [];
+        final List<dynamic> rows = rawOutput is List ? rawOutput : [rawOutput];
+        allRows.addAll(rows);
+
+        trCont = response.headers['tr_cont'] ?? '';
+        if (trCont != 'M' && trCont != 'F') break;
+        trCont = 'N';
       }
 
-      final data = jsonDecode(response.body);
-      final rawOutput = data['output2'] ?? data['output'] ?? [];
-      final List<dynamic> rows = rawOutput is List ? rawOutput : [rawOutput];
-      allRows.addAll(rows);
+      double num(dynamic v) => double.tryParse(v?.toString() ?? '') ?? 0;
 
-      trCont = response.headers['tr_cont'] ?? '';
-      if (trCont != 'M' && trCont != 'F') break;
-      trCont = 'N';
+      String? oldestDateThisRound;
+      for (final row in allRows) {
+        final rowDate = row['stck_bsop_date']?.toString() ?? '';
+        if (rowDate.isEmpty) continue;
+        final sell = num(row['whol_smtn_seln_tr_pbmn']);
+        final buy = num(row['whol_smtn_shnu_tr_pbmn']);
+        merged[rowDate] = DailyProgramPoint(
+          date: rowDate,
+          programTradingValue: sell + buy,
+        );
+        if (oldestDateThisRound == null ||
+            rowDate.compareTo(oldestDateThisRound) < 0) {
+          oldestDateThisRound = rowDate;
+        }
+      }
+
+      if (oldestDateThisRound == null) break;
+      if (earliestNeededDate == null ||
+          oldestDateThisRound.compareTo(earliestNeededDate) <= 0) {
+        break;
+      }
+
+      final d = DateTime(
+        int.parse(oldestDateThisRound.substring(0, 4)),
+        int.parse(oldestDateThisRound.substring(4, 6)),
+        int.parse(oldestDateThisRound.substring(6, 8)),
+      ).subtract(const Duration(days: 1));
+      final nextAnchor =
+          '${d.year.toString().padLeft(4, '0')}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}';
+
+      if (nextAnchor == anchorDate) break;
+      anchorDate = nextAnchor;
     }
 
-    double num(dynamic v) => double.tryParse(v?.toString() ?? '') ?? 0;
-
-    return allRows
-        .map((row) {
-          final sell = num(row['whol_smtn_seln_tr_pbmn']);
-          final buy = num(row['whol_smtn_shnu_tr_pbmn']);
-          return DailyProgramPoint(
-            date: row['stck_bsop_date']?.toString() ?? '',
-            programTradingValue: sell + buy,
-          );
-        })
-        .where((point) => point.date.isNotEmpty)
-        .toList();
+    return merged.values.toList();
   }
 }

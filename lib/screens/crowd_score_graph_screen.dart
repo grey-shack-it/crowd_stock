@@ -34,6 +34,7 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
   bool _isLoading = false;
   String? _error;
   List<CrowdScorePoint> _points = [];
+  List<DailyPricePoint> _priceHistory = [];
   int? _selectedIndex;
 
   @override
@@ -89,11 +90,13 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
       final investorHistory = await _kisApi.fetchInvestorTradeHistory(
         stockCode: widget.stockCode,
         date: _bd.format(latest),
+        earliestNeededDate: _bd.format(fetchStart),
       );
 
       final programHistory = await _kisApi.fetchProgramTradeHistory(
         stockCode: widget.stockCode,
         date: _bd.format(latest),
+        earliestNeededDate: _bd.format(fetchStart),
       );
 
       final brokerHistory = await _brokerRepository.fetchAllHistory(
@@ -116,6 +119,7 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
 
       setState(() {
         _points = points;
+        _priceHistory = priceHistory;
         _isLoading = false;
       });
     } catch (e) {
@@ -200,6 +204,42 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
     }
   }
 
+  FlTitlesData _bottomDateTitles() {
+    if (_points.isEmpty) return const FlTitlesData(show: false);
+
+    // 대략 10~12개 라벨만 남도록 간격을 자동으로 조절 (5일/10일 단위 느낌 유지)
+    final interval = (_points.length / 10).ceil().clamp(5, 9999).toDouble();
+
+    return FlTitlesData(
+      show: true,
+      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      bottomTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          interval: interval,
+          reservedSize: 24,
+          getTitlesWidget: (value, meta) {
+            final index = value.round();
+            if (index < 0 || index >= _points.length)
+              return const SizedBox.shrink();
+            final date = _points[index].date; // yyyyMMdd
+            final label =
+                '${int.parse(date.substring(4, 6))}/${int.parse(date.substring(6, 8))}';
+            return Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   /// isDegraded 여부가 바뀔 때마다 선을 끊어서, 근사 구간은 점선/회색으로
   /// 따로 그릴 수 있게 값들을 구간별로 쪼갠다.
   List<LineChartBarData> _buildSegments(
@@ -242,38 +282,197 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
     return segments;
   }
 
-  Widget _buildSingleLineChart(
-    String title,
+  /// _selectedIndex 위치에 강제로 점 하나를 찍어주는 "가짜 선".
+  /// 여러 그래프에 같은 index를 넘기면, 같은 날짜에 동시에 점이 보인다.
+  LineChartBarData? _highlightDot(
     List<double> Function(CrowdScorePoint) valueOf,
     Color color,
   ) {
+    final index = _selectedIndex;
+    if (index == null || index < 0 || index >= _points.length) return null;
+
+    final value = valueOf(_points[index]).first;
+
+    return LineChartBarData(
+      spots: [FlSpot(index.toDouble(), value)],
+      isCurved: false,
+      barWidth: 0,
+      color: Colors.transparent,
+      dotData: FlDotData(
+        show: true,
+        getDotPainter: (spot, percent, bar, index) => FlDotCirclePainter(
+          radius: 4,
+          color: color,
+          strokeColor: Colors.white,
+          strokeWidth: 1.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, {bool dashed = false}) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: dashed ? Colors.transparent : color,
+        shape: BoxShape.circle,
+        border: dashed ? Border.all(color: color, width: 1.5) : null,
+      ),
+    );
+  }
+
+  Widget _legend(List<(Color, String, bool)> items) {
+    // (색상, 라벨, 점선여부)
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      children: items.map((item) {
+        final (color, label, dashed) = item;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _legendDot(color, dashed: dashed),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  double? _closePriceFor(String date) {
+    for (final p in _priceHistory) {
+      if (p.date == date) return p.closePrice;
+    }
+    return null;
+  }
+
+  void _onTouch(FlTouchEvent event, LineTouchResponse? response) {
+    final spots = response?.lineBarSpots;
+    if (spots == null || spots.isEmpty) return;
+    final idx = spots.first.x.round();
+    if (idx != _selectedIndex) setState(() => _selectedIndex = idx);
+  }
+
+  LineTouchData _noBubbleTouchData() {
+    return LineTouchData(
+      touchTooltipData: LineTouchTooltipData(
+        getTooltipItems: (spots) => spots.map((_) => null).toList(),
+      ),
+      touchCallback: _onTouch,
+    );
+  }
+
+  Widget _buildCrowdScoreWithPriceChart() {
     if (_points.isEmpty) return const SizedBox.shrink();
+
+    final prices = _points.map((p) => _closePriceFor(p.date)).toList();
+    final validPrices = prices.whereType<double>().toList();
+
+    final scoreMin = _points
+        .map((p) => p.crowdScore)
+        .reduce((a, b) => a < b ? a : b);
+    final scoreMax = _points
+        .map((p) => p.crowdScore)
+        .reduce((a, b) => a > b ? a : b);
+    final priceMin = validPrices.isEmpty
+        ? 0.0
+        : validPrices.reduce((a, b) => a < b ? a : b);
+    final priceMax = validPrices.isEmpty
+        ? 1.0
+        : validPrices.reduce((a, b) => a > b ? a : b);
+    final priceRange = (priceMax - priceMin) == 0 ? 1.0 : (priceMax - priceMin);
+
+    // 종가를 Crowd Score 축 스케일로 정규화(시각적 겹침용) — 실제 숫자는 상세 패널에서만 보여줌
+    double normalize(double price) {
+      final ratio = (price - priceMin) / priceRange;
+      return scoreMin + ratio * (scoreMax - scoreMin);
+    }
+
+    final priceSpots = <FlSpot>[];
+    for (var i = 0; i < prices.length; i++) {
+      final price = prices[i];
+      if (price != null) priceSpots.add(FlSpot(i.toDouble(), normalize(price)));
+    }
+
+    final crowdHighlight = _highlightDot((p) => [p.crowdScore], Colors.blue);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        const Text(
+          'Crowd Score (선) · 종가(점선)',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 200,
+          child: LineChart(
+            LineChartData(
+              lineBarsData: [
+                ..._buildSegments((p) => [p.crowdScore], Colors.blue),
+                LineChartBarData(
+                  spots: priceSpots,
+                  isCurved: false,
+                  color: Colors.black45,
+                  dashArray: [4, 4],
+                  barWidth: 1.5,
+                  dotData: const FlDotData(show: false),
+                ),
+                if (crowdHighlight != null) crowdHighlight,
+              ],
+              titlesData: _bottomDateTitles(),
+              gridData: const FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              lineTouchData: _noBubbleTouchData(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetail1Chart() {
+    if (_points.isEmpty) return const SizedBox.shrink();
+
+    final scaleHighlight = _highlightDot((p) => [p.scaleScore], Colors.teal);
+    final accelHighlight = _highlightDot(
+      (p) => [p.accelerationScore],
+      Colors.purple,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '상세 1 — Scale / Acceleration',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 8),
         SizedBox(
           height: 180,
           child: LineChart(
             LineChartData(
-              lineBarsData: _buildSegments(valueOf, color),
-              titlesData: const FlTitlesData(show: false),
+              lineBarsData: [
+                ..._buildSegments((p) => [p.scaleScore], Colors.teal),
+                ..._buildSegments((p) => [p.accelerationScore], Colors.purple),
+                if (scaleHighlight != null) scaleHighlight,
+                if (accelHighlight != null) accelHighlight,
+              ],
+              titlesData: _bottomDateTitles(),
               gridData: const FlGridData(show: false),
               borderData: FlBorderData(show: false),
-              lineTouchData: LineTouchData(
-                touchCallback: (event, response) {
-                  final spots = response?.lineBarSpots;
-                  if (spots == null || spots.isEmpty) return;
-                  final idx = spots.first.x.round();
-                  if (idx != _selectedIndex) {
-                    setState(() => _selectedIndex = idx);
-                  }
-                },
-              ),
+              lineTouchData: _noBubbleTouchData(),
             ),
           ),
+        ),
+        const Text(
+          '● Scale   ● Acceleration',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
         ),
       ],
     );
@@ -310,12 +509,10 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
           const SizedBox(height: 6),
           Text('Crowd Score : ${p.crowdScore.toStringAsFixed(2)}'),
           Text(
-            'Confidence Multiplier : ${p.confidenceMultiplier.toStringAsFixed(2)}배',
-          ),
-          Text(
-            'Base(Scale ${p.scaleScore.toStringAsFixed(1)} / Accel ${p.accelerationScore.toStringAsFixed(1)}) : ${p.baseParticipationScore.toStringAsFixed(2)}',
+            'Base(Scale ${p.scaleScore.toStringAsFixed(1)}, Accel ${p.accelerationScore.toStringAsFixed(1)}) : ${p.baseParticipationScore.toStringAsFixed(2)}',
           ),
           Text('참여확산도 : ${p.participationSpreadScore.toStringAsFixed(2)}'),
+          Text('종가 : ${_closePriceFor(p.date)?.toStringAsFixed(0) ?? "-"} 원'),
         ],
       ),
     );
@@ -349,53 +546,9 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
                 children: [
                   _buildDetailPanel(),
                   const SizedBox(height: 24),
-                  _buildSingleLineChart(
-                    'Crowd Score',
-                    (p) => [p.crowdScore],
-                    Colors.blue,
-                  ),
+                  _buildCrowdScoreWithPriceChart(),
                   const SizedBox(height: 24),
-                  const Text(
-                    '상세 1 — Scale / Acceleration',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 180,
-                    child: LineChart(
-                      LineChartData(
-                        lineBarsData: [
-                          ..._buildSegments((p) => [p.scaleScore], Colors.teal),
-                          ..._buildSegments(
-                            (p) => [p.accelerationScore],
-                            Colors.purple,
-                          ),
-                        ],
-                        titlesData: const FlTitlesData(show: false),
-                        gridData: const FlGridData(show: false),
-                        borderData: FlBorderData(show: false),
-                        lineTouchData: LineTouchData(
-                          touchCallback: (event, response) {
-                            final spots = response?.lineBarSpots;
-                            if (spots == null || spots.isEmpty) return;
-                            final idx = spots.first.x.round();
-                            if (idx != _selectedIndex)
-                              setState(() => _selectedIndex = idx);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    '● Scale   ● Acceleration',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 24),
-                  _buildSingleLineChart(
-                    '상세 2 — Confidence Multiplier',
-                    (p) => [p.confidenceMultiplier],
-                    Colors.orange,
-                  ),
+                  _buildDetail1Chart(),
                   const SizedBox(height: 12),
                   const Text(
                     '점선/옅은 색 구간 = 회원사 데이터 없어 근사 계산된 구간',
