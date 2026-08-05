@@ -5,6 +5,8 @@ import '../services/acceleration_history_builder.dart';
 import '../services/investor_history_builder.dart';
 import '../services/program_history_builder.dart';
 import '../services/supabase_broker_repository.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../theme/app_colors.dart';
 import 'crowd_score_graph_screen.dart';
 import '../engine/metrics/scale_metrics.dart';
 import '../engine/metrics/acceleration_metrics.dart';
@@ -20,9 +22,18 @@ import '../engine/calculators/default_crowd_score_calculator.dart';
 import '../engine/statistics/percentile_calculator.dart';
 
 class StockTestScreen extends StatefulWidget {
-  const StockTestScreen({super.key, required this.kisApi});
+  const StockTestScreen({
+    super.key,
+    required this.kisApi,
+    required this.stockCode,
+    required this.stockName,
+    required this.initialDate,
+  });
 
   final KisApi kisApi;
+  final String stockCode;
+  final String stockName;
+  final DateTime initialDate;
 
   @override
   State<StockTestScreen> createState() => _StockTestScreenState();
@@ -62,10 +73,6 @@ class _StockTestScreenState extends State<StockTestScreen> {
   final DefaultCrowdScoreCalculator _crowdScoreCalculator =
       const DefaultCrowdScoreCalculator();
 
-  final TextEditingController _stockController = TextEditingController(
-    text: '005930',
-  );
-
   bool _isLoading = false;
   String? _error;
   StockQuote? _quote;
@@ -82,6 +89,19 @@ class _StockTestScreenState extends State<StockTestScreen> {
   double? _crowdScore;
   double? _marketCap;
   int? _historyDayCount;
+  String? _stockName;
+  bool _showBaseDetail = false;
+  bool _showSpreadDetail = false;
+  DateTime? _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentStockCode = widget.stockCode;
+    _stockName = widget.stockName;
+    _selectedDate = widget.initialDate;
+    _fetchQuote();
+  }
 
   String _formatDate(DateTime date) {
     final y = date.year.toString().padLeft(4, '0');
@@ -112,18 +132,29 @@ class _StockTestScreenState extends State<StockTestScreen> {
     });
 
     try {
-      _currentStockCode = _stockController.text.trim();
+      // stockCode는 initState에서 이미 widget.stockCode로 설정됨
 
-      // 기본값: 직전 영업일 (장중 실시간 값은 API 자체 제약도 있고, 의미도 약함)
-      final targetDate = _formatDate(_previousBusinessDay(DateTime.now()));
+      // 기본값: 직전 영업일, 사용자가 날짜를 직접 골랐으면 그걸 사용
+      final baseDate = _selectedDate ?? _previousBusinessDay(DateTime.now());
+      final targetDate = _formatDate(baseDate);
 
       final quote = await _kisApi.fetchStockQuote(_currentStockCode);
       final sharesOutstanding = double.tryParse(quote.sharesOutstanding) ?? 0;
 
+      String? stockName;
+      try {
+        final nameRow = await Supabase.instance.client
+            .from('stock_universe')
+            .select('stock_name')
+            .eq('stock_code', _currentStockCode)
+            .maybeSingle();
+        stockName = nameRow?['stock_name'] as String?;
+      } catch (_) {
+        stockName = null; // 이름 조회 실패해도 나머지 조회는 계속 진행
+      }
+
       // targetDate까지 90일치(넉넉하게) 기간별시세 조회
-      final start = _previousBusinessDay(
-        DateTime.now(),
-      ).subtract(const Duration(days: 90));
+      final start = baseDate.subtract(const Duration(days: 90));
       final priceHistory = await _kisApi.fetchDailyPriceHistory(
         stockCode: _currentStockCode,
         startDate: _formatDate(start),
@@ -273,6 +304,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
 
       setState(() {
         _quote = quote;
+        _stockName = stockName;
         _targetDate = targetDate;
         _scaleScore = scaleScore;
         _accelerationScore = accelerationScore;
@@ -285,6 +317,8 @@ class _StockTestScreenState extends State<StockTestScreen> {
         _crowdScore = crowdScore;
         _marketCap = targetMarketCap;
         _historyDayCount = historicalScaleValues.length;
+        _showBaseDetail = false;
+        _showSpreadDetail = false;
         _isLoading = false;
       });
     } catch (e) {
@@ -295,110 +329,341 @@ class _StockTestScreenState extends State<StockTestScreen> {
     }
   }
 
+  Widget _dateChangeButton() {
+    return TextButton(
+      onPressed: () async {
+        final now = DateTime.now();
+        final lastSelectable = _previousBusinessDay(now);
+        final picked = await showDatePicker(
+          context: context,
+          firstDate: DateTime(now.year - 3),
+          lastDate: lastSelectable,
+          initialDate: _selectedDate ?? lastSelectable,
+        );
+        if (picked != null) {
+          setState(() => _selectedDate = picked);
+          _fetchQuote();
+        }
+      },
+      style: TextButton.styleFrom(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.primary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      ),
+      child: const Text('변경'),
+    );
+  }
+
+  /// 세로로 긴 직사각형 게이지. 점수 비율만큼 아래에서부터 색이 채워진다.
+  Widget _verticalGauge(double? score) {
+    final ratio = score == null ? 0.0 : (score / 100).clamp(0.0, 1.0);
+    final color = AppColors.confidenceColor(_confidenceMultiplier);
+
+    return Container(
+      width: 96,
+      height: 110,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          FractionallySizedBox(
+            heightFactor: ratio,
+            widthFactor: 1,
+            child: Container(color: color.withOpacity(0.25)),
+          ),
+          Center(
+            child: Text(
+              score?.toStringAsFixed(0) ?? '-',
+              style: TextStyle(
+                fontSize: 40,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summarySquare({
+    required String label,
+    required String value,
+    required Color color,
+    VoidCallback? onTap,
+    bool expanded = false,
+  }) {
+    return Expanded(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ),
+                if (onTap != null)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      size: 16,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, double? value, {String fallback = '데이터 부족'}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+          Text(
+            value?.toStringAsFixed(1) ?? fallback,
+            style: const TextStyle(color: AppColors.textPrimary),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final crowdScore = _crowdScore;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Crowd Stock MVP')),
+      appBar: AppBar(title: const Text('Prism Index')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: _stockController,
-              decoration: const InputDecoration(
-                labelText: '종목코드',
-                hintText: '예: 005930',
-                border: OutlineInputBorder(),
+            Text(
+              _stockName ?? widget.stockCode,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+            ),
+            Text(
+              _currentStockCode,
+              style: const TextStyle(
+                fontSize: 15,
+                color: AppColors.textSecondary,
               ),
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '조회일 : ${_selectedDate != null ? "${_selectedDate!.month}월 ${_selectedDate!.day}일" : "직전 영업일"}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                _dateChangeButton(),
+              ],
+            ),
+
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _fetchQuote,
-              child: Text(_isLoading ? '조회 중...' : '조회 (기준일: 직전 영업일)'),
-            ),
 
-            const SizedBox(height: 24),
-
+            if (_isLoading) const Center(child: CircularProgressIndicator()),
             if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(_error!, style: const TextStyle(color: AppColors.warning)),
 
-            if (_quote != null) ...[
-              Text(
-                '조회 종목 : $_currentStockCode  (기준일 : $_targetDate)',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-
-              const SizedBox(height: 12),
-              Text('상장주식수 : ${_quote!.sharesOutstanding} 주'),
-              const SizedBox(height: 8),
-              Text(
-                '시가총액(기준일 종가 기준) : ${_marketCap?.toStringAsFixed(0) ?? "-"} 원',
-              ),
-
-              const Divider(height: 32),
-
-              Text(
-                'Crowd Score : ${_crowdScore?.toStringAsFixed(2) ?? "계산 불가 (아래 지표 중 부족한 것 있음)"}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
-              Text(
-                'Confidence Multiplier : ${_confidenceMultiplier != null ? "${_confidenceMultiplier!.toStringAsFixed(2)}배" : "-"}',
-              ),
-              Text(
-                '참여확산도 : ${_participationSpreadScore?.toStringAsFixed(2) ?? "-"}',
-              ),
-
-              const Divider(height: 32),
-
-              Text(
-                'Base Participation Score : ${_baseParticipationScore?.toStringAsFixed(2) ?? "-"}',
-              ),
-              Text('  ├ Scale : ${_scaleScore?.toStringAsFixed(2) ?? "-"}'),
-              Text(
-                '  └ Acceleration : ${_accelerationScore?.toStringAsFixed(2) ?? "데이터 부족(20일치 미만)"}',
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Broker(회원사) : ${_brokerScore?.toStringAsFixed(2) ?? "Supabase 기록 부족"}',
-              ),
-              Text(
-                'Investor(투자자) : ${_investorScore?.toStringAsFixed(2) ?? "데이터 부족"}',
-              ),
-              Text(
-                'Program(프로그램매매) : ${_programScore?.toStringAsFixed(2) ?? "데이터 부족"}',
-              ),
-
-              const SizedBox(height: 16),
-              const Text(
-                '※ 기준일은 직전 영업일 확정값 — 장중 실시간 값이 아니라 일관된 비교가 가능함',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              Text(
-                '※ Scale 비교에 쓴 과거 기록 개수 : ${_historyDayCount ?? 0}일',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CrowdScoreGraphScreen(
-                        kisApi: _kisApi,
-                        stockCode: _currentStockCode,
+            if (_quote != null)
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 프리즘 지수 — 세로 게이지
+                      Center(
+                        child: Column(
+                          children: [
+                            const Text(
+                              '프리즘 지수',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _verticalGauge(crowdScore),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-                child: const Text('그래프 보기'),
+                      if (crowdScore == null)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            '아래 지표 중 아직 데이터가 부족한 게 있어 계산이 안 됐어요',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+
+                      const SizedBox(height: 20),
+
+                      // 3칸 요약 (크기 동일)
+                      Row(
+                        children: [
+                          _summarySquare(
+                            label: '기본 거래 점수',
+                            value:
+                                _baseParticipationScore?.toStringAsFixed(0) ??
+                                '-',
+                            color: AppColors.scoreColor(
+                              _baseParticipationScore,
+                            ),
+                            expanded: _showBaseDetail,
+                            onTap: () => setState(
+                              () => _showBaseDetail = !_showBaseDetail,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _summarySquare(
+                            label: '참여 분산 점수',
+                            value:
+                                _participationSpreadScore?.toStringAsFixed(0) ??
+                                '-',
+                            color: AppColors.scoreColor(
+                              _participationSpreadScore,
+                            ),
+                            expanded: _showSpreadDetail,
+                            onTap: () => setState(
+                              () => _showSpreadDetail = !_showSpreadDetail,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _summarySquare(
+                            label: '참여 가중치',
+                            value: _confidenceMultiplier != null
+                                ? 'x ${_confidenceMultiplier!.toStringAsFixed(2)}'
+                                : '-',
+                            color: AppColors.confidenceColor(
+                              _confidenceMultiplier,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      if (_showBaseDetail)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _detailRow('거래 규모', _scaleScore),
+                              _detailRow(
+                                '거래 가속도',
+                                _accelerationScore,
+                                fallback: '데이터 부족(20일치 미만)',
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      if (_showSpreadDetail)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _detailRow(
+                                '거래원 집중도',
+                                _brokerScore,
+                                fallback: 'Supabase 기록 부족',
+                              ),
+                              _detailRow('투자자 집중도', _investorScore),
+                              _detailRow('프로그램 변화량', _programScore),
+                            ],
+                          ),
+                        ),
+
+                      const SizedBox(height: 20),
+                      const Text(
+                        '※ 기준일은 직전 영업일 확정값 — 장중 실시간 값이 아니라 일관된 비교가 가능함',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => CrowdScoreGraphScreen(
+                                  kisApi: _kisApi,
+                                  stockCode: _currentStockCode,
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text('그래프 보기'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ],
           ],
         ),
       ),

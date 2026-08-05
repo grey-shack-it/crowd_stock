@@ -20,13 +20,18 @@ class _DashedLinePainter extends CustomPainter {
     const dashSpace = 2.0;
     var startX = 0.0;
     while (startX < size.width) {
-      canvas.drawLine(Offset(startX, size.height / 2), Offset(startX + dashWidth, size.height / 2), paint);
+      canvas.drawLine(
+        Offset(startX, size.height / 2),
+        Offset(startX + dashWidth, size.height / 2),
+        paint,
+      );
       startX += dashWidth + dashSpace;
     }
   }
 
   @override
-  bool shouldRepaint(covariant _DashedLinePainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _DashedLinePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class CrowdScoreGraphScreen extends StatefulWidget {
@@ -190,7 +195,8 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
           context: context,
           firstDate: DateTime(now.year - 3),
           lastDate: lastSelectable,
-          initialDateRange: _customRange ??
+          initialDateRange:
+              _customRange ??
               DateTimeRange(
                 start: lastSelectable.subtract(const Duration(days: 30)),
                 end: lastSelectable,
@@ -243,12 +249,17 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
           reservedSize: 24,
           getTitlesWidget: (value, meta) {
             final index = value.round();
-            if (index < 0 || index >= _points.length) return const SizedBox.shrink();
+            if (index < 0 || index >= _points.length)
+              return const SizedBox.shrink();
             final date = _points[index].date; // yyyyMMdd
-            final label = '${int.parse(date.substring(4, 6))}/${int.parse(date.substring(6, 8))}';
+            final label =
+                '${int.parse(date.substring(4, 6))}/${int.parse(date.substring(6, 8))}';
             return Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+              ),
             );
           },
         ),
@@ -269,7 +280,8 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
 
     for (var i = 1; i <= _points.length; i++) {
       final atEnd = i == _points.length;
-      final degradedChanged = !atEnd && _points[i].isDegraded != _points[segStart].isDegraded;
+      final degradedChanged =
+          !atEnd && _points[i].isDegraded != _points[segStart].isDegraded;
 
       if (atEnd || degradedChanged) {
         final isDegraded = _points[segStart].isDegraded;
@@ -380,10 +392,18 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
     final prices = _points.map((p) => _closePriceFor(p.date)).toList();
     final validPrices = prices.whereType<double>().toList();
 
-    final scoreMin = _points.map((p) => p.crowdScore).reduce((a, b) => a < b ? a : b);
-    final scoreMax = _points.map((p) => p.crowdScore).reduce((a, b) => a > b ? a : b);
-    final priceMin = validPrices.isEmpty ? 0.0 : validPrices.reduce((a, b) => a < b ? a : b);
-    final priceMax = validPrices.isEmpty ? 1.0 : validPrices.reduce((a, b) => a > b ? a : b);
+    final scoreMin = _points
+        .map((p) => p.crowdScore)
+        .reduce((a, b) => a < b ? a : b);
+    final scoreMax = _points
+        .map((p) => p.crowdScore)
+        .reduce((a, b) => a > b ? a : b);
+    final priceMin = validPrices.isEmpty
+        ? 0.0
+        : validPrices.reduce((a, b) => a < b ? a : b);
+    final priceMax = validPrices.isEmpty
+        ? 1.0
+        : validPrices.reduce((a, b) => a > b ? a : b);
     final priceRange = (priceMax - priceMin) == 0 ? 1.0 : (priceMax - priceMin);
 
     // 종가를 Crowd Score 축 스케일로 정규화(시각적 겹침용) — 실제 숫자는 상세 패널에서만 보여줌
@@ -426,10 +446,13 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Crowd Score · 종가', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text(
+          '프리즘 지수 · 종가',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         _legendRow([
-          _legendDot(Colors.blue, 'Crowd Score'),
+          _legendDot(Colors.blue, '프리즘 지수'),
           _legendDot(Colors.black45, '종가', dashed: true),
         ]),
         const SizedBox(height: 8),
@@ -465,16 +488,22 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
     if (_points.isEmpty) return const SizedBox.shrink();
 
     final scaleHighlight = _highlightDot((p) => [p.scaleScore], Colors.teal);
-    final accelHighlight = _highlightDot((p) => [p.accelerationScore], Colors.purple);
+    final accelHighlight = _highlightDot(
+      (p) => [p.accelerationScore],
+      Colors.purple,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('상세 1 — Scale / Acceleration', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text(
+          '상세 1 — 거래 규모 / 거래 가속도',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         _legendRow([
-          _legendDot(Colors.teal, 'Scale'),
-          _legendDot(Colors.purple, 'Acceleration'),
+          _legendDot(Colors.teal, '거래 규모'),
+          _legendDot(Colors.purple, '거래 가속도'),
         ]),
         const SizedBox(height: 8),
         SizedBox(
@@ -508,7 +537,8 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
 
     final index = _selectedIndex!.clamp(0, _points.length - 1);
     final p = _points[index];
-    final dateLabel = '${p.date.substring(0, 4)}-${p.date.substring(4, 6)}-${p.date.substring(6, 8)}';
+    final dateLabel =
+        '${p.date.substring(0, 4)}-${p.date.substring(4, 6)}-${p.date.substring(6, 8)}';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -526,11 +556,11 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
               style: TextStyle(fontSize: 11, color: Colors.orange),
             ),
           const SizedBox(height: 6),
-          Text('Crowd Score : ${p.crowdScore.toStringAsFixed(2)}'),
+          Text('프리즘 지수 : ${p.crowdScore.toStringAsFixed(2)}'),
           Text(
-            'Base(Scale ${p.scaleScore.toStringAsFixed(1)}, Accel ${p.accelerationScore.toStringAsFixed(1)}) : ${p.baseParticipationScore.toStringAsFixed(2)}',
+            '기본 거래 점수(거래 규모 ${p.scaleScore.toStringAsFixed(1)}, 거래 가속도 ${p.accelerationScore.toStringAsFixed(1)}) : ${p.baseParticipationScore.toStringAsFixed(2)}',
           ),
-          Text('참여확산도 : ${p.participationSpreadScore.toStringAsFixed(2)}'),
+          Text('참여 분산 점수 : ${p.participationSpreadScore.toStringAsFixed(2)}'),
           Text('종가 : ${_closePriceFor(p.date)?.toStringAsFixed(0) ?? "-"} 원'),
         ],
       ),
@@ -541,36 +571,41 @@ class _CrowdScoreGraphScreenState extends State<CrowdScoreGraphScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.stockCode} Crowd Score 추이'),
+        title: Text('${widget.stockCode} 프리즘 지수 추이'),
         actions: [
           TextButton(
             onPressed: _openPeriodPicker,
-            child: Text(_periodLabel(), style: const TextStyle(color: Colors.white)),
+            child: Text(
+              _periodLabel(),
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildDetailPanel(),
-                      const SizedBox(height: 24),
-                      _buildCrowdScoreWithPriceChart(),
-                      const SizedBox(height: 24),
-                      _buildDetail1Chart(),
-                      const SizedBox(height: 12),
-                      const Text(
-                        '점선/옅은 색 구간 = 회원사 데이터 없어 근사 계산된 구간',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                    ],
+          ? Center(
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDetailPanel(),
+                  const SizedBox(height: 24),
+                  _buildCrowdScoreWithPriceChart(),
+                  const SizedBox(height: 24),
+                  _buildDetail1Chart(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '점선/옅은 색 구간 = 회원사 데이터 없어 근사 계산된 구간',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
                   ),
-                ),
+                ],
+              ),
+            ),
     );
   }
 }
