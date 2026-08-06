@@ -103,13 +103,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _dateChangeButton() {
-    return TextButton(
+    return ElevatedButton(
       onPressed: _pickDate,
-      style: TextButton.styleFrom(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.primary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      style: ElevatedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: const Text('변경'),
     );
@@ -129,6 +128,35 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+      onTap: () => _pickStock(s),
+    );
+  }
+
+  Widget _recentTile(StockInfo s) {
+    return ListTile(
+      title: Row(
+        children: [
+          Text(s.name),
+          const SizedBox(width: 8),
+          Text(
+            s.code,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+      trailing: InkWell(
+        onTap: () {
+          StockSearchRepository.instance.removeRecent(s);
+          setState(() {});
+        },
+        child: const Padding(
+          padding: EdgeInsets.all(4),
+          child: Icon(Icons.close, size: 16, color: AppColors.textSecondary),
+        ),
       ),
       onTap: () => _pickStock(s),
     );
@@ -221,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           shrinkWrap: true,
                           itemCount: recentList.length,
                           itemBuilder: (context, index) =>
-                              _suggestionTile(recentList[index]),
+                              _recentTile(recentList[index]),
                         ),
                       ),
                     const SizedBox(height: 8),

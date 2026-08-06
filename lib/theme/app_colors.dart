@@ -26,4 +26,13 @@ class AppColors {
     if (score >= 30) return textSecondary;
     return warning;
   }
+
+  // 프리즘 지수 전용(0~150 스케일): scoreColor와 같은 비율(70%/30% 지점)을
+  // 150 기준으로 다시 잡은 것 — 105 이상=높음, 45~105=보통, 45 미만=낮음
+  static Color prismIndexColor(double? score) {
+    if (score == null) return textSecondary;
+    if (score >= 105) return primary;
+    if (score >= 45) return textSecondary;
+    return warning;
+  }
 }

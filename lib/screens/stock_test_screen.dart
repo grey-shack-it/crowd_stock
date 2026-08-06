@@ -330,7 +330,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
   }
 
   Widget _dateChangeButton() {
-    return TextButton(
+    return ElevatedButton(
       onPressed: () async {
         final now = DateTime.now();
         final lastSelectable = _previousBusinessDay(now);
@@ -345,11 +345,10 @@ class _StockTestScreenState extends State<StockTestScreen> {
           _fetchQuote();
         }
       },
-      style: TextButton.styleFrom(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.primary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      style: ElevatedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: const Text('변경'),
     );
@@ -358,7 +357,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
   /// 세로로 긴 직사각형 게이지. 점수 비율만큼 아래에서부터 색이 채워진다.
   Widget _verticalGauge(double? score) {
     final ratio = score == null ? 0.0 : (score / 100).clamp(0.0, 1.0);
-    final color = AppColors.confidenceColor(_confidenceMultiplier);
+    final tierColor = AppColors.prismIndexColor(score);
 
     return Container(
       width: 96,
@@ -366,6 +365,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tierColor, width: 4),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -374,7 +374,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
           FractionallySizedBox(
             heightFactor: ratio,
             widthFactor: 1,
-            child: Container(color: color.withOpacity(0.25)),
+            child: Container(color: AppColors.textSecondary.withOpacity(0.25)),
           ),
           Center(
             child: Text(
@@ -382,7 +382,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
               style: TextStyle(
                 fontSize: 40,
                 fontWeight: FontWeight.bold,
-                color: AppColors.primary,
+                color: tierColor,
               ),
             ),
           ),
@@ -412,12 +412,13 @@ class _StockTestScreenState extends State<StockTestScreen> {
               border: Border.all(color: color.withOpacity(0.5)),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
                   ),
                 ),
@@ -426,7 +427,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
                     child: Text(
                       value,
                       style: TextStyle(
-                        fontSize: 30,
+                        fontSize: 35,
                         fontWeight: FontWeight.bold,
                         color: color,
                       ),
@@ -440,7 +441,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
                       expanded
                           ? Icons.keyboard_arrow_up
                           : Icons.keyboard_arrow_down,
-                      size: 16,
+                      size: 20,
                       color: AppColors.textSecondary,
                     ),
                   ),
@@ -524,8 +525,9 @@ class _StockTestScreenState extends State<StockTestScreen> {
                             const Text(
                               '프리즘 지수',
                               style: TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color.fromARGB(255, 253, 253, 253),
                               ),
                             ),
                             const SizedBox(height: 8),
