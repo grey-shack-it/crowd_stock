@@ -356,16 +356,16 @@ class _StockTestScreenState extends State<StockTestScreen> {
 
   /// 세로로 긴 직사각형 게이지. 점수 비율만큼 아래에서부터 색이 채워진다.
   Widget _verticalGauge(double? score) {
-    final ratio = score == null ? 0.0 : (score / 100).clamp(0.0, 1.0);
+    final ratio = score == null ? 0.0 : (score / 150).clamp(0.0, 1.0);
     final tierColor = AppColors.prismIndexColor(score);
 
     return Container(
-      width: 96,
-      height: 110,
+      width: 130,
+      height: 160,
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: tierColor, width: 4),
+        border: Border.all(color: tierColor, width: 3),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -374,15 +374,15 @@ class _StockTestScreenState extends State<StockTestScreen> {
           FractionallySizedBox(
             heightFactor: ratio,
             widthFactor: 1,
-            child: Container(color: AppColors.textSecondary.withOpacity(0.25)),
+            child: Container(color: tierColor.withOpacity(0.7)),
           ),
           Center(
             child: Text(
               score?.toStringAsFixed(0) ?? '-',
               style: TextStyle(
-                fontSize: 40,
+                fontSize: 75,
                 fontWeight: FontWeight.bold,
-                color: tierColor,
+                color: AppColors.textPrimary,
               ),
             ),
           ),
@@ -409,7 +409,7 @@ class _StockTestScreenState extends State<StockTestScreen> {
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color.withOpacity(0.5)),
+              border: Border.all(color: color.withOpacity(1)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
